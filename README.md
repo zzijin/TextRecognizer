@@ -28,14 +28,15 @@ pip install paddlepaddle==3.3.1 paddleocr==3.5.0
 
 > **注意：** Windows 上需要 `enable_mkldnn=False` 以避免 ONEDNN 推理引擎 bug。
 
-# 单模型识别 0001.jpg
+## 单模型识别
+
 python ocr_server_rec.py          # → TestDatas/server_rec/
 python ocr_en_mobile_rec.py       # → TestDatas/en_mobile_rec/
 python ocr_ppstructure_v3.py      # → TestDatas/ppstructure_v3/
 
-# 批量识别 0002~0004.jpg
+## 批量识别
+
 python batch_ocr.py
-```
 
 ## 项目结构
 
