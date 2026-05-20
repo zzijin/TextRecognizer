@@ -4,58 +4,84 @@
 
 ## 项目目标
 
-对高分辨率手写数字表格照片进行高精度识别。最终实现为 .NET 桌面应用程序。
+对高分辨率手写数字表格照片进行高精度识别，最终交付为 .NET 桌面应用程序。
 
-## 技术路线
-
-使用多个 PaddleOCR 模型独立识别，交叉验证以提高准确率：
-
-| 模型 | 用途 | 特点 |
-|---|---|---|
-| PP-OCRv5_server_rec | 文本检测 + 数字识别 | 综合精度最高 |
-| en_PP-OCRv5_mobile_rec | 文本检测 + 英文/数字识别 | 补充 server 漏检项 |
-| PPStructureV3 | 表格结构检测 + OCR | 输出 HTML/Markdown 表格 |
-
-## 环境要求
-
-- Python 3.12+
-- Windows 11（开发环境）
-- PaddlePaddle 3.3.1 + PaddleOCR 3.5.0
-
-```bash
-pip install paddlepaddle==3.3.1 paddleocr==3.5.0
-```
-
-> **注意：** Windows 上需要 `enable_mkldnn=False` 以避免 ONEDNN 推理引擎 bug。
-
-## 单模型识别
-
-python ocr_server_rec.py          # → TestDatas/server_rec/
-python ocr_en_mobile_rec.py       # → TestDatas/en_mobile_rec/
-python ocr_ppstructure_v3.py      # → TestDatas/ppstructure_v3/
-
-## 批量识别
-
-python batch_ocr.py
+**当前阶段：** 双识别模型（PP-OCRv5_server_rec + en_PP-OCRv5_mobile_rec）交叉验证，通过 FastAPI 服务化供 .NET 客户端调用。
 
 ## 项目结构
 
 ```
 NumberRecognizer/
-├── README.md
-├── CLAUDE.md                         # AI 辅助开发指南
-├── ocr_server_rec.py                 # PP-OCRv5_server_rec 模型脚本
-├── ocr_en_mobile_rec.py              # en_PP-OCRv5_mobile_rec 模型脚本
-├── ocr_ppstructure_v3.py             # PPStructureV3 表格结构模型脚本
-├── batch_ocr.py                      # 批量识别脚本
-├── doc/                              # PaddleOCR 官方文档（离线参考）
+├── ocr_service/                     # Python OCR 服务端
+│   ├── server.py                    # FastAPI 服务（主入口）
+│   ├── ocr_server_rec.py            # PP-OCRv5_server_rec 独立脚本
+│   ├── ocr_en_mobile_rec.py         # en_PP-OCRv5_mobile_rec 独立脚本
+│   ├── ocr_ppstructure_v3.py        # PPStructureV3（暂不使用）
+│   ├── batch_ocr.py                 # 批量识别脚本
+│   ├── venv/                        # Python 虚拟环境
+│   ├── TestDatas/                   # 测试图片 + 基准数据
+│   └── doc/                         # PaddleOCR 离线文档
+├── OcrClient/                       # .NET 桌面客户端
+│   ├── OcrClient.slnx               # 解决方案
+│   ├── OcrClient.Core/              # 共享库
+│   │   ├── Models/OcrResult.cs      # JSON 响应模型
+│   │   └── Services/OcrApiClient.cs # OCR 服务 HTTP 调用
+│   └── OcrClient/                   # WPF UI 项目
+│       ├── App.xaml.cs              # DI 注册 + 启动
+│       ├── MainWindow.xaml          # FluentWindow + 导航
+│       ├── ViewModels/              # MVVM ViewModel 层
+│       ├── Views/                   # WPF 页面
+│       └── Services/                # ApplicationHostService
+├── CLAUDE.md
+└── README.md
 ```
+
+## 环境要求
+
+### Python 服务端
+
+- Python 3.12+
+- PaddlePaddle 3.3.1 + PaddleOCR 3.5.0
+
+```bash
+cd ocr_service
+source venv/Scripts/activate
+pip install paddlepaddle==3.3.1 paddleocr==3.5.0 fastapi uvicorn pillow
+```
+
+### .NET 客户端
+
+- .NET 10.0 SDK
+- VS2022 / VS Code
+
+## 快速开始
+
+```bash
+# 1. 启动 OCR 服务
+cd ocr_service
+source venv/Scripts/activate
+python server.py                     # → http://localhost:8080
+
+# 2. 打开 .NET 客户端
+# 用 VS2022 打开 OcrClient/OcrClient.slnx，F5 运行
+```
+
+### OCR 服务 API
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/health` | GET | 健康检查 |
+| `/ocr/server_rec` | POST | PP-OCRv5_server_rec 识别 |
+| `/ocr/en_mobile_rec` | POST | en_PP-OCRv5_mobile_rec 识别 |
+| `/ocr/cross_validate` | POST | 双模型交叉验证 |
+
+请求格式：`{"image": "<base64>"}`
 
 ## 已知局限
 
 - 标准 PaddleOCR 不支持将字符集限制为纯数字，形近字符（0/D、1/I）可能误认
 - PPStructureV3 在本数据集上检测为 8 列（实际 7 列），存在列偏移
-- 不依赖 GPU，纯 CPU 推理（需要支持GPU加速）
+- 纯 CPU 推理（后续计划支持 GPU 加速）
 
 ## License
 
