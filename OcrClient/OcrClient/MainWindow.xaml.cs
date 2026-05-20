@@ -1,5 +1,6 @@
 using OcrClient.UI.ViewModels;
 using OcrClient.UI.Views;
+using System.Windows;
 using Wpf.Ui;
 using Wpf.Ui.Abstractions;
 using Wpf.Ui.Controls;
