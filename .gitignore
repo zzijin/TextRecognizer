@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+venv/
+.venv/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+*.DotSettings.user
+
+# PaddleOCR model cache
+.paddlex/
+.paddleocr/
+PaddleX/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# Test output (generated result images)
+TestDatas/
+TestDatas/server_rec/
+TestDatas/en_mobile_rec/
+TestDatas/ppstructure_v3/
