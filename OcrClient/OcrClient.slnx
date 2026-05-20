@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="OcrClient.Core/OcrClient.Core.csproj" />
+  <Project Path="OcrClient/OcrClient.UI.csproj" />
+</Solution>
