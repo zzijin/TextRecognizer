@@ -10,35 +10,107 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Delivery target:** .NET desktop application (WinForms/WPF) wrapping the Python OCR pipeline.
 
-The three working models (`PP-OCRv5_server_rec`, `en_PP-OCRv5_mobile_rec`, `PPStructureV3`) run independently on each image, then results are cross-validated — agreement across models boosts confidence, disagreements flag uncertain regions.
+The two working models (`PP-OCRv5_server_rec`, `en_PP-OCRv5_mobile_rec`) run independently on each image, then results are cross-validated — agreement across models boosts confidence, disagreements flag uncertain regions.
+
+PPStructureV3 is deferred — may revisit later if table structure detection is needed.
+
+## Project Structure
+
+```
+NumberRecognizer/
+├── ocr_service/                     # Python OCR 服务端
+│   ├── server.py                    # FastAPI 服务（主入口，生产调用）
+│   ├── ocr_server_rec.py            # PP-OCRv5_server_rec 独立脚本
+│   ├── ocr_en_mobile_rec.py         # en_PP-OCRv5_mobile_rec 独立脚本
+│   ├── ocr_ppstructure_v3.py        # PPStructureV3（暂不使用）
+│   ├── ocr_config.yaml              # PaddleX 服务化配置
+│   ├── batch_ocr.py                 # 批量识别脚本
+│   ├── venv/                        # Python 虚拟环境
+│   ├── TestDatas/                   # 测试图片 + 基准数据
+│   └── doc/                         # PaddleOCR 离线文档
+├── OcrClient/                       # .NET 桌面客户端
+│   ├── OcrClient.slnx               # 解决方案
+│   ├── OcrClient.Core/              # 共享库 (net10.0)
+│   │   ├── Models/OcrResult.cs      # JSON 响应模型 (OcrItem, CrossValidateResult)
+│   │   └── Services/OcrApiClient.cs # HTTP 调用，3 个端点方法
+│   └── OcrClient/                   # WPF UI 项目 (net10.0-windows)
+│       ├── App.xaml.cs              # IHost + DI 注册 (CommunityToolkit.Mvvm, WPF-UI)
+│       ├── MainWindow.xaml / .cs    # FluentWindow + INavigationWindow
+│       ├── ViewModels/              # ViewModel (base), MainWindowViewModel, HomeViewModel, SettingsViewModel
+│       ├── Views/                   # HomePage, SettingsPage (INavigableView<T>)
+│       └── Services/                # ApplicationHostService (IHostedService)
+├── PaddleX/                         # PaddleX 源码（参考用）
+├── CLAUDE.md
+└── README.md
+```
 
 ## Environment
 
-- Python 3.12+ on Windows
-- `paddlepaddle==3.3.1`, `paddleocr==3.5.0` (PaddleOCR 3.x API, `predict()` method, `OCRResult` dict-like results)
+### Python (ocr_service)
+
+- Python 3.12+ on Windows, dependencies in `ocr_service/venv/`
+- **Activate:** `source ocr_service/venv/Scripts/activate` (bash) or `ocr_service\venv\Scripts\activate` (cmd)
+- `paddlepaddle==3.3.1`, `paddleocr==3.5.0`, `fastapi`, `uvicorn`, `pillow`
 - `enable_mkldnn=False` is **required** on Windows to avoid ONEDNN PIR conversion bug
+- **GPU support is planned** — currently CPU-only; will need CUDA paddlepaddle and `device="gpu"` configuration later
+
+### .NET (OcrClient)
+
+- .NET 10.0 SDK, WPF on Windows
+- NuGet: `WPF-UI` 4.3.0, `CommunityToolkit.Mvvm` 8.4.2, `Microsoft.Extensions.Hosting`, `Microsoft.Extensions.Http`, `OpenCvSharp4`
+- UI pattern: FluentWindow + NavigationView side-nav, MVVM with DI, `INavigationWindow.Navigate(Type)` for page routing
 
 ## OCR Models
 
-| Script | Model | Class | Notes |
-|---|---|---|---|
-| `ocr_server_rec.py` | PP-OCRv5_server_det + PP-OCRv5_server_rec | `PaddleOCR()` | Best overall digit accuracy, no table structure |
-| `ocr_en_mobile_rec.py` | PP-OCRv5_server_det + en_PP-OCRv5_mobile_rec | `PaddleOCR()` | Weaker but catches some items server misses |
-| `ocr_ppstructure_v3.py` | PPStructureV3 | `PPStructureV3()` | Table structure + OCR, outputs HTML/MD/JSON |
-| `batch_ocr.py` | All 3 working models | — | Batch processing multiple images |
-| `ocr_predict.py` | (legacy) | — | Earlier experiment, superseded |
+**Active (cross-validation):**
+
+| Script | Recognition Model | Notes |
+|---|---|---|
+| `ocr_server_rec.py` | PP-OCRv5_server_rec | Best overall digit accuracy |
+| `ocr_en_mobile_rec.py` | en_PP-OCRv5_mobile_rec | Catches some items server misses |
+| `batch_ocr.py` | Both above | Batch processing |
+
+Both share the same detection model (`PP-OCRv5_server_det`) — the difference is in the recognition model.
+
+**Deferred (may revisit later for table structure):**
+
+| Script | Notes |
+|---|---|
+| `ocr_ppstructure_v3.py` | PPStructureV3 pipeline — adds layout analysis + table structure, but internally reuses PP-OCRv5_server_rec for recognition. Not part of current cross-validation. |
+| `ocr_predict.py` | Legacy, superseded |
 
 ## Running Recognition
 
+### FastAPI service (primary)
+
 ```bash
-# Single model
+cd ocr_service
+source venv/Scripts/activate
+python server.py                     # → http://localhost:8080, docs at /docs
+```
+
+Endpoints: `/health` (GET), `/ocr/server_rec` (POST), `/ocr/en_mobile_rec` (POST), `/ocr/cross_validate` (POST). All POST endpoints accept `{"image": "<base64>"}`.
+
+### Standalone scripts
+
+```bash
+cd ocr_service && source venv/Scripts/activate
 python ocr_server_rec.py        # → TestDatas/server_rec/
 python ocr_en_mobile_rec.py     # → TestDatas/en_mobile_rec/
 python ocr_ppstructure_v3.py    # → TestDatas/ppstructure_v3/
-
-# Batch
-python batch_ocr.py
+python batch_ocr.py             # All images
 ```
+
+### .NET client
+
+Open `OcrClient/OcrClient.slnx` in VS2022, ensure `ocr_service/server.py` is running on port 8080, then F5.
+
+## .NET Architecture
+
+- **OcrClient.Core**: `OcrResult`/`CrossValidateResult` DTOs with `System.Text.Json`; `OcrApiClient` wrapping `HttpClient` calls to the FastAPI service.
+- **OcrClient.UI**: WPF-UI `FluentWindow` + `NavigationView` side-nav. `MainWindow : FluentWindow, INavigationWindow` delegates `Navigate(Type)` to `RootNavigation.Navigate()`. Pages implement `INavigableView<T>`.
+- **DI**: `App.xaml.cs` builds `IHost`, registers `ApplicationHostService`, all ViewModels/Pages as singletons, `OcrApiClient` with typed `HttpClient` via `AddHttpClient`.
+- **Startup flow**: `IHost.StartAsync()` → `ApplicationHostService.StartAsync()` → create `MainWindow` via DI → `Navigate(typeof(HomePage))`.
 
 ## Key PaddleOCR 3.x API Facts
 
@@ -84,14 +156,18 @@ PaddleOCR standard pipeline has NO character-set filter (no `rec_char_dict`, `vo
 
 ### Official Documentation
 
-Key docs in `doc/`:
+Key docs in `ocr_service/doc/`:
 - `通用OCR产线使用教程.html` — `PaddleOCR` pipeline parameters and defaults
 - `PP-StructureV3 产线使用教程.html` — `PPStructureV3` table/document structure pipeline
+- `服务化部署 - PaddleOCR 文档.html` — PaddleX serving deployment (CLI-based, had issues on Windows)
+- `PaddleOCR 与 PaddleX - PaddleOCR 文档 .html` — Relationship between PaddleOCR and PaddleX
 - `通过OCR实现验证码识别.html` — May be relevant for digit-focused recognition
+
+PaddleX source at `PaddleX/` — reference for serving implementation details (request schema, fileType mapping: 0=PDF, 1=IMAGE).
 
 ## Known Issues
 
 - No built-in character-set restriction (e.g., "11D" from "110")
 - PPStructureV3 column detection may not exactly match the actual grid on handwritten tables
-- Pure CPU inference — no GPU acceleration
+- Pure CPU inference — GPU acceleration is planned but not yet configured
 - Model files auto-cache; the `models/` directory has unused copies
