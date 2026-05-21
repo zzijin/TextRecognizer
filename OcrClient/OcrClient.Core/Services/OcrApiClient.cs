@@ -28,6 +28,14 @@ public class OcrApiClient
         return (await response.Content.ReadFromJsonAsync<OcrSingleResult>(cancellationToken: ct))!;
     }
 
+    /// <summary>Send base64 image to /ocr/mobile_rec only.</summary>
+    public async Task<OcrSingleResult> RecognizeMobileAsync(string imageBase64, CancellationToken ct = default)
+    {
+        var response = await _http.PostAsJsonAsync("/ocr/mobile_rec", new { image = imageBase64 }, ct);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<OcrSingleResult>(cancellationToken: ct))!;
+    }
+
     /// <summary>Send base64 image to /ocr/en_mobile_rec only.</summary>
     public async Task<OcrSingleResult> RecognizeEnMobileAsync(string imageBase64, CancellationToken ct = default)
     {
