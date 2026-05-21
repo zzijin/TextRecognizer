@@ -20,6 +20,8 @@ obj/
 .paddlex/
 .paddleocr/
 PaddleX/
+PaddleOCR/
+models/
 
 # OS
 .DS_Store
