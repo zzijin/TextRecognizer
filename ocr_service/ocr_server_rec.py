@@ -1,15 +1,17 @@
 import os
-os.environ["FLAGS_use_onednn"] = "0"
 os.environ["PADDLE_PDX_CACHE_HOME"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
+import time
 from paddleocr import PaddleOCR
 
+t0 = time.time()
 ocr = PaddleOCR(
+    device="gpu",
     use_doc_orientation_classify=False,
     use_doc_unwarping=False,
     use_textline_orientation=False,
-    enable_mkldnn=True,
 )
+print(f"Model loaded: {time.time() - t0:.1f}s")
 
 result = ocr.predict("TestDatas/0001.jpg")
 for res in result:
