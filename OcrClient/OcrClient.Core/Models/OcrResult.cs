@@ -9,6 +9,9 @@ public class OcrItem
 
     [JsonPropertyName("score")]
     public double Score { get; set; }
+
+    [JsonPropertyName("box")]
+    public List<List<double>>? Box { get; set; }
 }
 
 public class OcrSingleResult

@@ -4,18 +4,368 @@
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
       xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      xmlns:vm="clr-namespace:OcrClient.UI.ViewModels"
       mc:Ignorable="d"
-      d:DesignHeight="450" d:DesignWidth="800"
+      d:DesignHeight="550" d:DesignWidth="900"
       Title="Home"
       ui:Design.Background="{DynamicResource ApplicationBackgroundBrush}"
       ui:Design.Foreground="{DynamicResource TextFillColorPrimaryBrush}"
       Foreground="{DynamicResource TextFillColorPrimaryBrush}">
 
+    <Page.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+
+        <Style x:Key="StatusIconStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="4,0" />
+        </Style>
+
+        <DataTemplate x:Key="ImageListItemTemplate" DataType="{x:Type vm:ImageFileItem}">
+            <Grid Height="56" Margin="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="48"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="24"/>
+                </Grid.ColumnDefinitions>
+
+                <Image Grid.Column="0"
+                       Source="{Binding Thumbnail}"
+                       Width="44" Height="44"
+                       Stretch="UniformToFill"
+                       VerticalAlignment="Center"/>
+
+                <TextBlock Grid.Column="1"
+                           Text="{Binding FileName}"
+                           VerticalAlignment="Center"
+                           Margin="8,0,0,0"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding FilePath}"/>
+
+                <TextBlock Grid.Column="2">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource StatusIconStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Status}" Value="Pending">
+                                    <Setter Property="Text" Value="" />
+                                    <Setter Property="Foreground" Value="Transparent" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Processing">
+                                    <Setter Property="Text" Value="&#x231B;" />
+                                    <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Completed">
+                                    <Setter Property="Text" Value="&#x2713;" />
+                                    <Setter Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Error">
+                                    <Setter Property="Text" Value="&#x2717;" />
+                                    <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </DataTemplate>
+    </Page.Resources>
+
     <Grid>
-        <TextBlock Text="NumberRecognizer"
-                   FontSize="32"
-                   FontWeight="Light"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Center" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Row 0: Toolbar -->
+        <Border Grid.Row="0" Padding="16,12" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                    <ui:Button Appearance="Primary"
+                               Command="{Binding ViewModel.ImportImagesCommand}"
+                               Content="Import Images"
+                               Icon="{ui:SymbolIcon Image24}"
+                               Margin="0,0,8,0"/>
+
+                    <ui:Button Appearance="Success"
+                               Command="{Binding ViewModel.StartRecognitionCommand}"
+                               Content="Start Recognition"
+                               IsEnabled="{Binding ViewModel.CanEdit}"
+                               Icon="{ui:SymbolIcon Play24}"
+                               Margin="0,0,8,0"/>
+
+                    <ui:Button Appearance="Secondary"
+                               Command="{Binding ViewModel.ClearImagesCommand}"
+                               Content="Clear"
+                               IsEnabled="{Binding ViewModel.CanEdit}"
+                               Icon="{ui:SymbolIcon Delete24}"/>
+                </StackPanel>
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Server status — always visible when text present, color-coded by state -->
+                    <Border Grid.Column="0"
+                            CornerRadius="3"
+                            Padding="6,2"
+                            Margin="0,0,12,0"
+                            Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ViewModel.IsServerReady}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SystemFillColorSuccessBackgroundBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ViewModel.IsServerStarting}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SystemFillColorCautionBackgroundBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ViewModel.IsServerError}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SystemFillColorCriticalBackgroundBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding ViewModel.ServerStatusText}"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                    </Border>
+
+                    <ProgressBar Grid.Column="1"
+                                    Value="{Binding ViewModel.Progress}"
+                                    Maximum="100"
+                                    Height="8"
+                                    Visibility="{Binding ViewModel.IsBusy, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                    <TextBlock Grid.Column="2"
+                               Text="{Binding ViewModel.StatusText}"
+                               VerticalAlignment="Center"
+                               Margin="16,0,0,0"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               FontSize="13"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Row 1: Main Content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: Image List -->
+            <Border Grid.Column="0"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="0,0,1,0"
+                    Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                <ListBox ItemsSource="{Binding ViewModel.Images}"
+                         SelectedItem="{Binding ViewModel.SelectedImage}"
+                         ItemTemplate="{StaticResource ImageListItemTemplate}"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          Background="Transparent"/>
+
+            <!-- Right: Preview + Results -->
+            <ScrollViewer Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="16">
+                <StackPanel>
+                    <!-- Empty state -->
+                    <TextBlock Text="Select an image to preview"
+                               FontSize="16"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               HorizontalAlignment="Center"
+                               Margin="0,40,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ViewModel.HasSelection}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!-- Selected image content -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ViewModel.HasSelection}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <!-- Preview -->
+                        <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8"
+                                Margin="0,0,0,12">
+                            <Image Source="{Binding ViewModel.SelectedImage.FilePath}"
+                                   MaxWidth="500"
+                                   MaxHeight="300"
+                                   Stretch="Uniform"/>
+                        </Border>
+
+                        <!-- Error message -->
+                        <Border Background="{DynamicResource SystemFillColorCriticalBackgroundBrush}"
+                                BorderBrush="{DynamicResource SystemFillColorCriticalBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8"
+                                Margin="0,0,0,12">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ViewModel.SelectedImage.Status}" Value="Error">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="{Binding ViewModel.SelectedImage.ErrorMessage}"
+                                       Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                                       TextWrapping="Wrap"/>
+                        </Border>
+
+                        <!-- Results -->
+                        <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="12">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ViewModel.SelectedImage.Status}" Value="Completed">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </Style>
+                            </Border.Style>
+
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Headers -->
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="PP-OCRv5_server_rec"
+                                           FontWeight="SemiBold"
+                                           FontSize="14"
+                                           Margin="0,0,0,8"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1"
+                                           Text="en_PP-OCRv5_mobile_rec"
+                                           FontWeight="SemiBold"
+                                           FontSize="14"
+                                           Margin="0,0,0,8"/>
+
+                                <!-- Server results -->
+                                <ItemsControl Grid.Row="1" Grid.Column="0"
+                                              ItemsSource="{Binding ViewModel.SelectedImage.Result.ServerRec.Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="0,0,0,1"
+                                                    Padding="4,3">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Text}"
+                                                               FontFamily="Consolas"
+                                                               FontSize="14"
+                                                               FontWeight="SemiBold"
+                                                               MinWidth="60"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding Score, StringFormat={}{0:P1}}"
+                                                               FontSize="12"
+                                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                                               VerticalAlignment="Center"
+                                                               Margin="12,0,0,0"/>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Mobile results -->
+                                <ItemsControl Grid.Row="1" Grid.Column="1"
+                                              ItemsSource="{Binding ViewModel.SelectedImage.Result.EnMobileRec.Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="0,0,0,1"
+                                                    Padding="4,3">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Text}"
+                                                               FontFamily="Consolas"
+                                                               FontSize="14"
+                                                               FontWeight="SemiBold"
+                                                               MinWidth="60"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding Score, StringFormat={}{0:P1}}"
+                                                               FontSize="12"
+                                                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                                               VerticalAlignment="Center"
+                                                               Margin="12,0,0,0"/>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Model names for single results (no items) -->
+                                <TextBlock Grid.Row="2" Grid.Column="0"
+                                           Text="{Binding ViewModel.SelectedImage.Result.ServerRec.Count, StringFormat='Items: {0}'}"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                           Margin="0,6,0,0"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1"
+                                           Text="{Binding ViewModel.SelectedImage.Result.EnMobileRec.Count, StringFormat='Items: {0}'}"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                           Margin="0,6,0,0"/>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </Page>

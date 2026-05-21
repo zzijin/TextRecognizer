@@ -35,11 +35,12 @@ public partial class App : Application
         services.AddSingleton<SettingsViewModel>();
 
         // Core services
+        services.AddSingleton<Services.ServerProcessState>();
         services.AddSingleton<Core.Services.OcrApiClient>();
         services.AddHttpClient<Core.Services.OcrApiClient>(client =>
         {
             client.BaseAddress = new Uri("http://localhost:8080");
-            client.Timeout = TimeSpan.FromMinutes(2);
+            client.Timeout = TimeSpan.FromMinutes(15);
         });
     }
 
