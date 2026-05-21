@@ -1,3 +1,7 @@
+import os
+os.environ["FLAGS_use_onednn"] = "0"
+os.environ["PADDLE_PDX_CACHE_HOME"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+
 from paddleocr import PaddleOCR, PPStructureV3
 
 images = ["TestDatas/0002.jpg", "TestDatas/0003.jpg", "TestDatas/0004.jpg"]
@@ -9,7 +13,7 @@ ocr_server = PaddleOCR(
     use_doc_orientation_classify=False,
     use_doc_unwarping=False,
     use_textline_orientation=False,
-    enable_mkldnn=False,
+    enable_mkldnn=True,
 )
 for img in images:
     name = img.split("/")[-1].replace(".jpg", "")
@@ -27,7 +31,7 @@ ocr_en = PaddleOCR(
     use_doc_orientation_classify=False,
     use_doc_unwarping=False,
     use_textline_orientation=False,
-    enable_mkldnn=False,
+    enable_mkldnn=True,
 )
 for img in images:
     name = img.split("/")[-1].replace(".jpg", "")
@@ -43,7 +47,7 @@ pipeline = PPStructureV3(
     lang="en",
     use_doc_orientation_classify=False,
     use_doc_unwarping=False,
-    enable_mkldnn=False,
+    enable_mkldnn=True,
 )
 for img in images:
     name = img.split("/")[-1].replace(".jpg", "")
