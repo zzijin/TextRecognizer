@@ -49,7 +49,7 @@ pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/
 ### .NET 客户端
 
 - .NET 10.0 SDK
-- VS2022 推荐
+- VS2026 必需
 
 ```bash
 dotnet build OcrClient/OcrClient/OcrClient.UI.csproj
