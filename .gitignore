@@ -42,4 +42,5 @@ TestDatas/server_rec/
 TestDatas/en_mobile_rec/
 TestDatas/ppstructure_v3/
 /ocr_service/*.bat
-/ocr_service/logs/*.log
+/ocr_service/logs
+/ocr_service/doc
