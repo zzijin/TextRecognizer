@@ -1,15 +1,18 @@
-using System.Net.Http.Json;
+using Microsoft.Extensions.Logging;
 using OcrClient.Core.Models;
+using System.Net.Http.Json;
 
 namespace OcrClient.Core.Services;
 
 public class OcrApiClient
 {
     private readonly HttpClient _http;
+    private readonly ILogger<OcrApiClient> _logger;
 
-    public OcrApiClient(HttpClient http)
+    public OcrApiClient(HttpClient http, ILogger<OcrApiClient> logger)
     {
         _http = http;
+        _logger = logger;
     }
 
     /// <summary>Send base64 image to /ocr/cross_validate and return combined result.</summary>

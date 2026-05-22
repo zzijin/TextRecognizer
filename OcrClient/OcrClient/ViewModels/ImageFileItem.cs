@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using OcrClient.Core.Models;
+using System.Collections.Generic;
 using System.Windows.Media;
 
 namespace OcrClient.UI.ViewModels;
@@ -31,6 +32,8 @@ public partial class ImageFileItem : ObservableObject
 
     [ObservableProperty]
     private string? _errorMessage;
+
+    public HashSet<RecognitionMode> CompletedModes { get; set; } = [];
 
     public bool HasResult => Result is not null;
 

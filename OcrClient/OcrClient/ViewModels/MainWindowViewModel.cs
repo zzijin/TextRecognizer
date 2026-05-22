@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
 using System.Collections.ObjectModel;
 using Wpf.Ui;
 using Wpf.Ui.Controls;
@@ -7,10 +8,12 @@ namespace OcrClient.UI.ViewModels;
 
 public partial class MainWindowViewModel : ViewModel
 {
+    private readonly INavigationService _navigationService;
+    private readonly ILogger<MainWindowViewModel> _logger;
     private bool _isInitialized;
 
     [ObservableProperty]
-    private string _applicationTitle = "NumberRecognizer";
+    private string _applicationTitle = "TextRecognizer";
 
     [ObservableProperty]
     private ObservableCollection<object> _navigationItems = [];
@@ -21,8 +24,10 @@ public partial class MainWindowViewModel : ViewModel
     [ObservableProperty]
     private ObservableCollection<MenuItem> _trayMenuItems = [];
 
-    public MainWindowViewModel(INavigationService navigationService)
+    public MainWindowViewModel(INavigationService navigationService, ILogger<MainWindowViewModel> logger)
     {
+        _navigationService = navigationService;
+        _logger = logger;
         if (!_isInitialized)
             InitializeViewModel();
     }
@@ -33,7 +38,7 @@ public partial class MainWindowViewModel : ViewModel
         [
             new NavigationViewItem
             {
-                Content = "Home",
+                Content = "图形识别",
                 Icon = new SymbolIcon { Symbol = SymbolRegular.Home24 },
                 TargetPageType = typeof(Views.HomePage),
             }
@@ -43,13 +48,13 @@ public partial class MainWindowViewModel : ViewModel
         [
             new NavigationViewItem
             {
-                Content = "Settings",
+                Content = "应用配置",
                 Icon = new SymbolIcon { Symbol = SymbolRegular.Settings24 },
                 TargetPageType = typeof(Views.SettingsPage),
             }
         ];
 
-        TrayMenuItems = [new MenuItem { Header = "Home", Tag = "tray_home" }];
+        TrayMenuItems = [new MenuItem { Header = "图形识别", Tag = "tray_home" }];
 
         _isInitialized = true;
     }

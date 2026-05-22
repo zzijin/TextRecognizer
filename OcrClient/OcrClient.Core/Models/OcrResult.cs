@@ -16,6 +16,15 @@ public class OcrItem
 
     [JsonPropertyName("box")]
     public List<List<double>>? Box { get; set; }
+
+    /// <summary>Axis-aligned bounding rect derived from the quadrilateral Box.</summary>
+    [JsonIgnore]
+    public Rect BoundingRect => Box is null || Box.Count == 0
+        ? new Rect(0, 0, 0, 0)
+        : new Rect(
+            (int)Box.Min(p => p[0]), (int)Box.Min(p => p[1]),
+            (int)(Box.Max(p => p[0]) - Box.Min(p => p[0])),
+            (int)(Box.Max(p => p[1]) - Box.Min(p => p[1])));
 }
 
 public class OcrSingleResult

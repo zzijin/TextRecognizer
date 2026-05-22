@@ -12,7 +12,9 @@
       Title="Home"
       ui:Design.Background="{DynamicResource ApplicationBackgroundBrush}"
       ui:Design.Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-      Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+      Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+      ScrollViewer.CanContentScroll="False"
+      >
 
     <Page.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
@@ -97,7 +99,7 @@
                     <ui:Button Appearance="Success"
                                Command="{Binding ViewModel.StartRecognitionCommand}"
                                Content="开始识别"
-                               IsEnabled="{Binding ViewModel.CanEdit}"
+                               IsEnabled="{Binding ViewModel.CanStartRecognition}"
                                Icon="{ui:SymbolIcon Play24}"
                                Margin="0,0,8,0"/>
 
@@ -129,6 +131,7 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- Server status — always visible when text present, color-coded by state -->
@@ -158,6 +161,14 @@
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
                     </Border>
 
+                    <ui:Button Grid.Column="1"
+                               Appearance="Danger"
+                               Command="{Binding ViewModel.RestartServerCommand}"
+                               Content="重新连接服务"
+                               IsEnabled="{Binding ViewModel.IsServerError}"
+                               HorizontalAlignment="Left"
+                               Visibility="{Binding ViewModel.IsServerError, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
                     <ProgressBar Grid.Column="1"
                                     Value="{Binding ViewModel.Progress}"
                                     Maximum="100"
@@ -170,6 +181,14 @@
                                Margin="16,0,0,0"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                FontSize="13"/>
+
+                    <TextBlock Grid.Column="3"
+                               Text="{Binding ViewModel.ElapsedTime}"
+                               VerticalAlignment="Center"
+                               Margin="12,0,0,0"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               FontSize="13"
+                               FontFamily="Consolas"/>
                 </Grid>
             </Grid>
         </Border>
@@ -192,6 +211,7 @@
                          ItemTemplate="{StaticResource ImageListItemTemplate}"
                          BorderThickness="0"
                          Background="Transparent"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
             </Border>
 
@@ -202,7 +222,7 @@
                           Background="Transparent"/>
 
             <!-- Right: Preview + Results -->
-            <ScrollViewer Grid.Column="2"
+            <ScrollViewer x:Name="ResultsScrollViewer" Grid.Column="2"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Padding="16">
@@ -333,7 +353,8 @@
 
                                 <!-- Group rows -->
                                 <ItemsControl Grid.Row="1"
-                                              ItemsSource="{Binding ViewModel.CrossValidateGroups}">
+                                              ItemsSource="{Binding ViewModel.CrossValidateGroups}"
+                                              PreviewMouseWheel="ItemsControl_PreviewMouseWheel">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border BorderThickness="0,0,0,1"
@@ -482,7 +503,8 @@
                                                                          FontFamily="Consolas" FontSize="13" FontWeight="SemiBold"
                                                                          BorderThickness="0" Background="Transparent"
                                                                          MinWidth="40" Padding="0" VerticalAlignment="Center"
-                                                                         GotKeyboardFocus="ConfirmTextBox_GotKeyboardFocus"/>
+                                                                         GotFocus="TextBox_GotFocus"
+                                                                         LostFocus="TextBox_LostFocus"/>
                                                                 <Button Grid.Column="1"
                                                                         Command="{Binding TogglePopupCommand}"
                                                                         Width="20" Height="20" Padding="0"
@@ -564,6 +586,7 @@
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0"
@@ -571,7 +594,8 @@
                                            FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
 
                                 <ItemsControl Grid.Row="1"
-                                              ItemsSource="{Binding ViewModel.SingleResultItems}">
+                                              ItemsSource="{Binding ViewModel.SingleResultItems}"
+                                              PreviewMouseWheel="ItemsControl_PreviewMouseWheel">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
@@ -593,6 +617,14 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <ui:Button Grid.Row="2"
+                                           Command="{Binding ViewModel.ExportSingleResultsCommand}"
+                                           Content="导出结果"
+                                           Appearance="Primary"
+                                           Icon="{ui:SymbolIcon Save24}"
+                                           HorizontalAlignment="Right"
+                                           Margin="0,8,0,0"/>
                             </Grid>
                             </StackPanel>
                         </Border>
@@ -600,9 +632,10 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
-        <Popup IsOpen="{Binding ViewModel.IsCropPreviewVisible, Mode=OneWay}"
+        <Popup x:Name="CropPopup"
+               IsOpen="{Binding ViewModel.IsCropPreviewVisible, Mode=OneWay}"
                Placement="Mouse"
-               StaysOpen="False"
+               StaysOpen="True"
                AllowsTransparency="True">
             <Border Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"

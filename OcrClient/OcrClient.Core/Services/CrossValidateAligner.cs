@@ -13,65 +13,104 @@ public static class CrossValidateAligner
         var items2 = result.MobileRec?.Items ?? [];
         var items3 = result.EnMobileRec?.Items ?? [];
 
-        var used2 = new HashSet<int>();
-        var used3 = new HashSet<int>();
+        // Collect all items from all 3 models into a flat list
+        var all = new List<(int source, OcrItem item)>();
+        foreach (var item in items1) all.Add((0, item));
+        foreach (var item in items2) all.Add((1, item));
+        foreach (var item in items3) all.Add((2, item));
+
+        if (all.Count == 0) return [];
+
+        // Sort by Y center (top to bottom), then by X (left to right)
+        all.Sort((a, b) =>
+        {
+            var aCY = a.item.BoundingRect.Y + a.item.BoundingRect.Height / 2.0;
+            var bCY = b.item.BoundingRect.Y + b.item.BoundingRect.Height / 2.0;
+            int yCmp = aCY.CompareTo(bCY);
+            return yCmp != 0 ? yCmp : a.item.BoundingRect.X.CompareTo(b.item.BoundingRect.X);
+        });
+
+        // Cluster into Y-rows using half the average box height as threshold
+        double avgHeight = all.Average(a => a.item.BoundingRect.Height);
+        double rowThreshold = Math.Max(avgHeight * 0.5, 10);
+
+        var yRows = new List<List<(int source, OcrItem item)>>();
+        var currentRow = new List<(int source, OcrItem item)> { all[0] };
+        double rowCenterY = all[0].item.BoundingRect.Y + all[0].item.BoundingRect.Height / 2.0;
+
+        for (int i = 1; i < all.Count; i++)
+        {
+            double itemCY = all[i].item.BoundingRect.Y + all[i].item.BoundingRect.Height / 2.0;
+            if (Math.Abs(itemCY - rowCenterY) < rowThreshold)
+            {
+                currentRow.Add(all[i]);
+                // Weighted average toward new item to handle gradual Y drift
+                rowCenterY = (rowCenterY * (currentRow.Count - 1) + itemCY) / currentRow.Count;
+            }
+            else
+            {
+                yRows.Add(currentRow);
+                currentRow = [(all[i])];
+                rowCenterY = itemCY;
+            }
+        }
+        yRows.Add(currentRow);
+
+        // Within each Y-row, sort by X and group items at similar positions across models
         var groups = new List<CrossValidateGroup>();
-
-        foreach (var item1 in items1)
+        foreach (var row in yRows)
         {
-            var idx2 = BestMatch(item1.Box, items2, used2);
-            var idx3 = BestMatch(item1.Box, items3, used3);
+            row.Sort((a, b) => a.item.BoundingRect.X.CompareTo(b.item.BoundingRect.X));
+            var used = new bool[row.Count];
 
-            var groupItems = new List<CrossValidateGroupItem>
+            for (int i = 0; i < row.Count; i++)
             {
-                MakeItem("PP-OCRv5_server_rec", item1),
-                idx2.HasValue ? MakeItem("PP-OCRv5_mobile_rec", items2[idx2.Value]) : Placeholder(),
-                idx3.HasValue ? MakeItem("en_PP-OCRv5_mobile_rec", items3[idx3.Value]) : Placeholder(),
-            };
+                if (used[i]) continue;
+                var (srcI, itemI) = row[i];
 
-            if (idx2.HasValue) used2.Add(idx2.Value);
-            if (idx3.HasValue) used3.Add(idx3.Value);
+                var groupItems = new CrossValidateGroupItem[3];
+                var boxes = new List<List<double>>?[3];
+                groupItems[srcI] = MakeItem(_modelNames[srcI], itemI);
+                boxes[srcI] = itemI.Box;
+                used[i] = true;
 
-            ApplyPerItemAgreement(groupItems);
-            groups.Add(new CrossValidateGroup
-            {
-                Items = groupItems,
-                Agreement = groupItems.Where(i => !i.IsPlaceholder).Select(i => i.Agreement).DefaultIfEmpty(1).Max(),
-                UnionRect = ComputeUnionRect(item1.Box, idx2.HasValue ? items2[idx2.Value].Box : null, idx3.HasValue ? items3[idx3.Value].Box : null)
-            });
-        }
+                // Find items from OTHER models overlapping in X within this row
+                for (int j = i + 1; j < row.Count; j++)
+                {
+                    if (used[j]) continue;
+                    var (srcJ, itemJ) = row[j];
+                    if (srcJ == srcI) continue; // same model at different X → separate group
 
-        // Unmatched items from model 2
-        for (int i = 0; i < items2.Count; i++)
-        {
-            if (used2.Contains(i)) continue;
-            var item = MakeItem("PP-OCRv5_mobile_rec", items2[i]);
-            item.Agreement = 1;
-            groups.Add(new CrossValidateGroup
-            {
-                Items = new List<CrossValidateGroupItem> { Placeholder(), item, Placeholder() },
-                Agreement = 1,
-                UnionRect = ComputeUnionRect(null, items2[i].Box, null)
-            });
-        }
+                    if (itemI.Box is not null && itemJ.Box is not null &&
+                        ComputeIoU(itemI.Box, itemJ.Box) >= IouThreshold)
+                    {
+                        groupItems[srcJ] = MakeItem(_modelNames[srcJ], itemJ);
+                        boxes[srcJ] = itemJ.Box;
+                        used[j] = true;
+                    }
+                }
 
-        // Unmatched items from model 3
-        for (int i = 0; i < items3.Count; i++)
-        {
-            if (used3.Contains(i)) continue;
-            var item = MakeItem("en_PP-OCRv5_mobile_rec", items3[i]);
-            item.Agreement = 1;
-            groups.Add(new CrossValidateGroup
-            {
-                Items = new List<CrossValidateGroupItem> { Placeholder(), Placeholder(), item },
-                Agreement = 1,
-                UnionRect = ComputeUnionRect(null, null, items3[i].Box)
-            });
+                for (int s = 0; s < 3; s++)
+                    groupItems[s] ??= Placeholder();
+
+                var itemList = groupItems.ToList();
+                ApplyPerItemAgreement(itemList);
+                groups.Add(new CrossValidateGroup
+                {
+                    Items = itemList,
+                    Agreement = itemList.Where(x => !x.IsPlaceholder).Select(x => x.Agreement).DefaultIfEmpty(1).Max(),
+                    UnionRect = ComputeUnionRect(boxes)
+                });
+            }
         }
 
         AutoFillConfirmation(groups);
         return groups;
     }
+
+    private static readonly string[] _modelNames = [
+        "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec"
+    ];
 
     private static void AutoFillConfirmation(List<CrossValidateGroup> groups)
     {
@@ -80,42 +119,18 @@ public static class CrossValidateAligner
             var active = group.Items.Where(i => !i.IsPlaceholder).ToList();
             if (active.Count == 0) continue;
 
-            bool allGreen = active.All(i => i.Agreement == 3);
-            bool anyYellow = active.Any(i => i.Agreement == 2);
-            bool allRed = active.All(i => i.Agreement == 1);
-
-            if (allGreen)
+            if (active.All(i => i.Agreement == 3))
             {
                 group.ConfirmedText = active[0].Text;
                 group.IsConfirmed = true;
             }
-            else if (anyYellow)
+            else if (active.Any(i => i.Agreement == 2))
             {
                 var majority = active.First(i => i.Agreement == 2);
                 group.ConfirmedText = majority.Text;
                 group.IsConfirmed = false;
             }
-            // allRed: leave empty, not confirmed
         }
-    }
-
-    private static int? BestMatch(List<List<double>>? box, List<OcrItem> candidates, HashSet<int> used)
-    {
-        if (box is null) return null;
-        int? bestIdx = null;
-        double bestIou = IouThreshold;
-        for (int i = 0; i < candidates.Count; i++)
-        {
-            if (used.Contains(i)) continue;
-            if (candidates[i].Box is null) continue;
-            double iou = ComputeIoU(box, candidates[i].Box!);
-            if (iou > bestIou)
-            {
-                bestIou = iou;
-                bestIdx = i;
-            }
-        }
-        return bestIdx;
     }
 
     private static double ComputeIoU(List<List<double>> boxA, List<List<double>> boxB)
@@ -166,7 +181,6 @@ public static class CrossValidateAligner
         var active = items.Where(i => !i.IsPlaceholder).ToList();
         if (active.Count == 0) return;
 
-        // Count how many items share each text
         foreach (var item in active)
         {
             int count = active.Count(a => a.Text.Trim() == item.Text.Trim());

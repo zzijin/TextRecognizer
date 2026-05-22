@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using OcrClient.Core.Models;
 using OcrClient.Core.Services;
@@ -9,6 +10,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using OpenCvSharp;
 
 namespace OcrClient.UI.ViewModels;
 
@@ -16,6 +18,8 @@ public partial class HomeViewModel : ViewModel
 {
     private readonly OcrApiClient _ocrClient;
     private readonly ServerProcessState _serverState;
+    private readonly ILogger<HomeViewModel> _logger;
+    private readonly ApplicationHostService _appHost;
     private CancellationTokenSource? _cts;
 
     [ObservableProperty]
@@ -44,6 +48,9 @@ public partial class HomeViewModel : ViewModel
 
     [ObservableProperty]
     private bool _canEdit = true;
+
+    [ObservableProperty]
+    private string _elapsedTime = "";
 
     [ObservableProperty]
     private RecognitionMode _selectedMode = RecognitionMode.CrossValidate;
@@ -85,6 +92,56 @@ public partial class HomeViewModel : ViewModel
 
     private void RebuildCachedGroups()
     {
+        {
+            var items1 = SelectedImage?.Result?.ServerRec?.Items ?? [];
+            var items2 = SelectedImage?.Result?.MobileRec?.Items ?? [];
+            var items3 = SelectedImage?.Result?.EnMobileRec?.Items ?? [];
+
+            //导出识别结果
+            using (FileStream fs = new FileStream(@".\OutData\items1.json", FileMode.Create))
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(items1);
+                using var sw = new StreamWriter(fs);
+                sw.Write(json);
+            }
+            using (FileStream fs = new FileStream(@".\OutData\items2.json", FileMode.Create))
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(items2);
+                using var sw = new StreamWriter(fs);
+                sw.Write(json);
+            }
+            using (FileStream fs = new FileStream(@".\OutData\items3.json", FileMode.Create))
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(items3);
+                using var sw = new StreamWriter(fs);
+                sw.Write(json);
+            }
+            //使用识别结果中的位置对图片imagePath进行标注，并写入OutData中
+            var imagePath = SelectedImage?.FilePath;
+            if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+            {
+                var outDir = Path.Combine(AppContext.BaseDirectory, "OutData");
+                Directory.CreateDirectory(outDir);
+                var fileName = Path.GetFileNameWithoutExtension(imagePath);
+
+                // Boxes are now in original image coordinates (server no longer resizes manually)
+                using var src1 = Cv2.ImRead(imagePath);
+                AnnotateModel(src1, items1, Scalar.Red, $"{fileName}_server_rec.jpg", outDir);
+                using var src2 = Cv2.ImRead(imagePath);
+                AnnotateModel(src2, items2, Scalar.Lime, $"{fileName}_mobile_rec.jpg", outDir);
+                using var src3 = Cv2.ImRead(imagePath);
+                AnnotateModel(src3, items3, Scalar.Cyan, $"{fileName}_en_mobile_rec.jpg", outDir);
+
+                // Combined: all 3 models on one image
+                using var combined = Cv2.ImRead(imagePath);
+                AnnotateModel(combined, items1, Scalar.Red, $"{fileName}_combined.jpg", outDir, append: true);
+                AnnotateModel(combined, items2, Scalar.Lime, $"{fileName}_combined.jpg", outDir, append: true);
+                AnnotateModel(combined, items3, Scalar.Cyan, $"{fileName}_combined.jpg", outDir, append: true);
+                Cv2.ImWrite(Path.Combine(outDir, $"{fileName}_combined.jpg"), combined);
+                combined.Dispose();
+            }
+        }
+
         _cachedGroups = (SelectedImage?.Result is { } r && IsCrossValidate)
             ? CrossValidateAligner.Align(r) : null;
 
@@ -98,7 +155,7 @@ public partial class HomeViewModel : ViewModel
                 {
                     var bmp = new BitmapImage(new Uri(imagePath));
                     if (bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
-                        scale = 1024.0 / Math.Max(bmp.PixelWidth, bmp.PixelHeight);
+                        scale = 1.0;  // server returns boxes in original image coords, no scaling needed
                 }
                 catch { scale = 1.0; }
             }
@@ -152,15 +209,30 @@ public partial class HomeViewModel : ViewModel
         }
     };
 
+    public bool CanStartRecognition => _serverState.IsReady && !IsBusy && Images.Count > 0;
+
+    [RelayCommand]
+    private void RestartServer()
+    {
+        _serverState.StatusText = "Restarting...";
+        _serverState.IsReady = false;
+        _serverState.IsStarting = true;
+        _serverState.HasError = false;
+        OnPropertyChanged(nameof(CanStartRecognition));
+        _appHost.Restart();
+    }
+
     public string ServerStatusText => _serverState.StatusText;
     public bool IsServerReady => _serverState.IsReady;
     public bool IsServerStarting => _serverState.IsStarting;
     public bool IsServerError => _serverState.HasError;
 
-    public HomeViewModel(OcrApiClient ocrClient, ServerProcessState serverState)
+    public HomeViewModel(OcrApiClient ocrClient, ServerProcessState serverState, ILogger<HomeViewModel> logger, ApplicationHostService appHost)
     {
         _ocrClient = ocrClient;
         _serverState = serverState;
+        _logger = logger;
+        _appHost = appHost;
 
         _serverState.PropertyChanged += (_, _) =>
         {
@@ -168,12 +240,14 @@ public partial class HomeViewModel : ViewModel
             OnPropertyChanged(nameof(IsServerReady));
             OnPropertyChanged(nameof(IsServerStarting));
             OnPropertyChanged(nameof(IsServerError));
+            OnPropertyChanged(nameof(CanStartRecognition));
         };
     }
 
     partial void OnIsBusyChanged(bool value)
     {
         CanEdit = !value;
+        OnPropertyChanged(nameof(CanStartRecognition));
     }
 
     partial void OnCompletedCountChanged(int value)
@@ -197,8 +271,11 @@ public partial class HomeViewModel : ViewModel
         if (dialog.ShowDialog() != true)
             return;
 
+        var existing = Images.Select(i => i.FilePath).ToHashSet();
+        int added = 0, skipped = 0;
         foreach (var filePath in dialog.FileNames)
         {
+            if (existing.Contains(filePath)) { skipped++; continue; }
             var thumbnail = CreateThumbnail(filePath);
             Images.Add(new ImageFileItem
             {
@@ -207,11 +284,15 @@ public partial class HomeViewModel : ViewModel
                 Thumbnail = thumbnail,
                 Status = ImageFileStatus.Pending
             });
+            added++;
         }
 
         TotalCount = Images.Count;
         CompletedCount = 0;
-        StatusText = $"已加载 {Images.Count} 张图片";
+        OnPropertyChanged(nameof(CanStartRecognition));
+        StatusText = skipped > 0
+            ? $"已加载 {added} 张，跳过 {skipped} 张重复"
+            : $"已加载 {Images.Count} 张图片";
     }
 
     [RelayCommand]
@@ -225,12 +306,15 @@ public partial class HomeViewModel : ViewModel
         Progress = 0;
         StatusText = "就绪";
         IsBusy = false;
+        OnPropertyChanged(nameof(CanStartRecognition));
     }
 
     [RelayCommand]
     private async Task StartRecognitionAsync()
     {
-        if (Images.Count == 0) return;
+        if (Images.Count == 0 || !CanStartRecognition) return;
+
+        _logger.LogInformation("Recognition started: {Count} images, mode={Mode}", Images.Count, SelectedMode);
 
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
@@ -240,6 +324,19 @@ public partial class HomeViewModel : ViewModel
         TotalCount = Images.Count;
         StatusText = $"识别中 0/{TotalCount}...";
         Progress = 0;
+        int skipped = 0;
+
+        var startTime = DateTime.Now;
+        var timerCts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            while (!timerCts.Token.IsCancellationRequested)
+            {
+                var elapsed = DateTime.Now - startTime;
+                ElapsedTime = $"{(int)elapsed.TotalMinutes:D2}:{elapsed.Seconds:D2}";
+                try { await Task.Delay(1000, timerCts.Token); } catch { break; }
+            }
+        }, timerCts.Token);
 
         try
         {
@@ -247,24 +344,62 @@ public partial class HomeViewModel : ViewModel
             {
                 token.ThrowIfCancellationRequested();
 
+                // Skip if already recognized in this mode
+                if (item.CompletedModes.Contains(SelectedMode))
+                {
+                    skipped++;
+                    CompletedCount++;
+                    continue;
+                }
+
+                _logger.LogInformation("Processing: {FileName}", item.FileName);
                 item.Status = ImageFileStatus.Processing;
                 item.ErrorMessage = null;
 
                 try
                 {
                     var base64 = ConvertImageToBase64(item.FilePath);
-                    item.Result = SelectedMode switch
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    switch (SelectedMode)
                     {
-                        RecognitionMode.CrossValidate => await _ocrClient.CrossValidateAsync(base64, token),
-                        RecognitionMode.ServerRec => WrapSingle(await _ocrClient.RecognizeServerAsync(base64, token), RecognitionMode.ServerRec),
-                        RecognitionMode.MobileRec => WrapSingle(await _ocrClient.RecognizeMobileAsync(base64, token), RecognitionMode.MobileRec),
-                        RecognitionMode.EnMobileRec => WrapSingle(await _ocrClient.RecognizeEnMobileAsync(base64, token), RecognitionMode.EnMobileRec),
-                        _ => throw new InvalidOperationException("Unknown recognition mode")
-                    };
+                        case RecognitionMode.CrossValidate:
+                            var cvResult = await _ocrClient.CrossValidateAsync(base64, token);
+                            item.Result = cvResult;
+                            item.CompletedModes.Add(RecognitionMode.CrossValidate);
+                            item.CompletedModes.Add(RecognitionMode.ServerRec);
+                            item.CompletedModes.Add(RecognitionMode.MobileRec);
+                            item.CompletedModes.Add(RecognitionMode.EnMobileRec);
+                            break;
+                        case RecognitionMode.ServerRec:
+                            item.Result = MergeResult(item.Result, RecognitionMode.ServerRec, await _ocrClient.RecognizeServerAsync(base64, token));
+                            item.CompletedModes.Add(RecognitionMode.ServerRec);
+                            break;
+                        case RecognitionMode.MobileRec:
+                            item.Result = MergeResult(item.Result, RecognitionMode.MobileRec, await _ocrClient.RecognizeMobileAsync(base64, token));
+                            item.CompletedModes.Add(RecognitionMode.MobileRec);
+                            break;
+                        case RecognitionMode.EnMobileRec:
+                            item.Result = MergeResult(item.Result, RecognitionMode.EnMobileRec, await _ocrClient.RecognizeEnMobileAsync(base64, token));
+                            item.CompletedModes.Add(RecognitionMode.EnMobileRec);
+                            break;
+                    }
+                    sw.Stop();
+                    _logger.LogInformation("Done: {FileName} in {ElapsedMs}ms, {Count} items",
+                        item.FileName, sw.ElapsedMilliseconds,
+                        item.Result?.ServerRec?.Count ?? item.Result?.MobileRec?.Count ?? item.Result?.EnMobileRec?.Count ?? 0);
+
+                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                        LogResultDetails(item);
                     item.Status = ImageFileStatus.Completed;
+                    if (item == SelectedImage)
+                    {
+                        RebuildCachedGroups();
+                        OnPropertyChanged(nameof(SingleResultItems));
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    _logger.LogError(ex, "Failed: {FileName}", item.FileName);
                     item.Status = ImageFileStatus.Error;
                     item.ErrorMessage = ex.Message;
                     item.Result = null;
@@ -273,11 +408,19 @@ public partial class HomeViewModel : ViewModel
                 CompletedCount++;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Recognition cancelled");
+        }
         finally
         {
+            timerCts.Cancel();
+            ElapsedTime = "";
             IsBusy = false;
-            StatusText = $"完成: {CompletedCount}/{TotalCount}";
+            StatusText = skipped > 0
+                ? $"完成: {CompletedCount}/{TotalCount} (跳过 {skipped} 张已识别)"
+                : $"完成: {CompletedCount}/{TotalCount}";
+            _logger.LogInformation("Recognition finished: {Completed}/{Total} (skipped {Skipped})", CompletedCount, TotalCount, skipped);
         }
     }
 
@@ -311,14 +454,39 @@ public partial class HomeViewModel : ViewModel
     public void ShowCropPreview(CrossValidateGroup group)
     {
         CropPreviewSource = CreateCropPreview(group);
-        if (CropPreviewSource is not null)
-            IsCropPreviewVisible = true;
+        IsCropPreviewVisible = CropPreviewSource is not null;
     }
 
     public void HideCropPreview()
     {
         IsCropPreviewVisible = false;
         CropPreviewSource = null;
+    }
+
+    [RelayCommand]
+    private void ExportSingleResults()
+    {
+        var items = SingleResultItems;
+        if (items is null || items.Count == 0) return;
+
+        var imageName = Path.GetFileNameWithoutExtension(SelectedImage?.FilePath ?? "result");
+        var modelSuffix = SelectedMode switch
+        {
+            RecognitionMode.ServerRec => "server_rec",
+            RecognitionMode.MobileRec => "mobile_rec",
+            RecognitionMode.EnMobileRec => "en_mobile_rec",
+            _ => ""
+        };
+        var dialog = new SaveFileDialog
+        {
+            Filter = "文本文件|*.txt",
+            Title = "导出识别结果",
+            FileName = $"{imageName}_{modelSuffix}.txt"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        var lines = items.Select(i => i.Text);
+        File.WriteAllLines(dialog.FileName, lines);
     }
 
     [RelayCommand]
@@ -341,16 +509,16 @@ public partial class HomeViewModel : ViewModel
         File.WriteAllLines(dialog.FileName, lines);
     }
 
-    private static CrossValidateResult WrapSingle(OcrSingleResult result, RecognitionMode mode)
+    private static CrossValidateResult MergeResult(CrossValidateResult? existing, RecognitionMode mode, OcrSingleResult result)
     {
-        var wrapper = new CrossValidateResult();
+        var merged = existing ?? new CrossValidateResult();
         switch (mode)
         {
-            case RecognitionMode.ServerRec: wrapper.ServerRec = result; break;
-            case RecognitionMode.MobileRec: wrapper.MobileRec = result; break;
-            case RecognitionMode.EnMobileRec: wrapper.EnMobileRec = result; break;
+            case RecognitionMode.ServerRec: merged.ServerRec = result; break;
+            case RecognitionMode.MobileRec: merged.MobileRec = result; break;
+            case RecognitionMode.EnMobileRec: merged.EnMobileRec = result; break;
         }
-        return wrapper;
+        return merged;
     }
 
     private static BitmapSource? CreateCropPreview(CrossValidateGroup group)
@@ -369,6 +537,39 @@ public partial class HomeViewModel : ViewModel
             return new CroppedBitmap(bmp, new Int32Rect(x, y, w, h));
         }
         catch { return null; }
+    }
+
+    private void LogResultDetails(ImageFileItem item)
+    {
+        var result = item.Result;
+        if (result is null) return;
+
+        void LogItems(string model, List<OcrItem>? items)
+        {
+            if (items is null) return;
+            foreach (var oi in items)
+                _logger.LogTrace("[{Model}] \"{Text}\" score={Score} rect={Rect}", model, oi.Text, oi.Score, oi.BoundingRect);
+        }
+
+        LogItems("server_rec", result.ServerRec?.Items);
+        LogItems("mobile_rec", result.MobileRec?.Items);
+        LogItems("en_mobile_rec", result.EnMobileRec?.Items);
+    }
+
+    private static void AnnotateModel(Mat src, List<OcrItem> items, Scalar color, string outName, string outDir, bool append = false)
+    {
+        foreach (var item in items)
+        {
+            if (item.Box is null) continue;
+            var pts = item.Box.Select(p => new OpenCvSharp.Point(p[0], p[1])).ToArray();
+            Cv2.Polylines(src, new[] { pts }, isClosed: true, color: color, thickness: 2);
+            var textPos = new OpenCvSharp.Point(pts[0].X, pts[0].Y - 6);
+            var label = new string(item.Text.Where(c => c < 128).ToArray());
+            Cv2.PutText(src, $"{label}({item.Score:P0})", textPos,
+                HersheyFonts.HersheySimplex, 0.5, color, 1);
+        }
+        if (!append)
+            Cv2.ImWrite(Path.Combine(outDir, outName), src);
     }
 
     private static string ConvertImageToBase64(string filePath)

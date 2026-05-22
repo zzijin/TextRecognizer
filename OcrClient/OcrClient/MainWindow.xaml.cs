@@ -1,5 +1,5 @@
+using Microsoft.Extensions.Logging;
 using OcrClient.UI.ViewModels;
-using OcrClient.UI.Views;
 using System.Windows;
 using Wpf.Ui;
 using Wpf.Ui.Abstractions;
@@ -10,12 +10,14 @@ namespace OcrClient.UI;
 public partial class MainWindow : FluentWindow, INavigationWindow
 {
     private readonly INavigationViewPageProvider _pageProvider;
+    private readonly ILogger<MainWindow> _logger;
     public MainWindowViewModel ViewModel { get; }
 
-    public MainWindow(MainWindowViewModel viewModel, INavigationViewPageProvider pageProvider)
+    public MainWindow(MainWindowViewModel viewModel, INavigationViewPageProvider pageProvider, ILogger<MainWindow> logger)
     {
         ViewModel = viewModel;
         _pageProvider = pageProvider;
+        _logger = logger;
         DataContext = this;
         InitializeComponent();
         SetPageService(_pageProvider);

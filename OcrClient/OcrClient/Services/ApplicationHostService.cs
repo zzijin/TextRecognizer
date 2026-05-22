@@ -1,5 +1,5 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -8,18 +8,22 @@ using Wpf.Ui;
 
 namespace OcrClient.UI.Services;
 
-internal class ApplicationHostService : IHostedService
+public class ApplicationHostService : IHostedService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ServerProcessState _serverState;
+    private readonly ILogger<ApplicationHostService> _logger;
+    private readonly AppConfigService _configService;
     private INavigationWindow? _navigationWindow;
     private Process? _pythonProcess;
     private CancellationTokenSource? _serverCts;
 
-    public ApplicationHostService(IServiceProvider serviceProvider, ServerProcessState serverState)
+    public ApplicationHostService(IServiceProvider serviceProvider, ServerProcessState serverState, ILogger<ApplicationHostService> logger, AppConfigService configService)
     {
         _serviceProvider = serviceProvider;
         _serverState = serverState;
+        _logger = logger;
+        _configService = configService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -37,18 +41,28 @@ internal class ApplicationHostService : IHostedService
         return Task.CompletedTask;
     }
 
+    public void Restart()
+    {
+        _logger.LogInformation("Manual restart requested");
+        _serverCts?.Cancel();
+        StopPythonServer();
+        _ = Task.Run(() => StartPythonServerAsync());
+    }
+
     private async Task StartHealthMonitorAsync(CancellationToken ct)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        var cfg = _configService.Config.Server;
+        var healthUrl = $"{cfg.BaseUrl}/health";
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(cfg.HealthTimeoutSeconds) };
         int failCount = 0;
 
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(5000, ct); } catch { return; }
+            try { await Task.Delay(cfg.HealthMonitorIntervalMs, ct); } catch { return; }
 
             try
             {
-                var resp = await http.GetAsync("http://localhost:8080/health", ct);
+                var resp = await http.GetAsync(healthUrl, ct);
                 if (resp.IsSuccessStatusCode)
                 {
                     if (!_serverState.IsReady || failCount > 0)
@@ -70,7 +84,7 @@ internal class ApplicationHostService : IHostedService
                 failCount++;
             }
 
-            if (failCount >= 3)
+            if (failCount >= cfg.HealthMaxFailures)
             {
                 if (_serverState.IsReady)
                 {
@@ -84,18 +98,26 @@ internal class ApplicationHostService : IHostedService
 
     private async Task StartPythonServerAsync()
     {
+        var cfg = _configService.Config;
+        _logger.LogInformation("Starting OCR Python server");
         _serverState.StatusText = "Starting OCR service...";
         _serverState.IsStarting = true;
 
-        var serverDir = FindOcrServiceDir();
-        var pythonExe = Path.Combine(serverDir, "venv", "Scripts", "python.exe");
-        var serverScript = Path.Combine(serverDir, "server.py");
+        var serverDir = ResolveServiceDirectory(cfg.OcrService.ServiceDirectory);
+        var venvDir = Path.IsPathRooted(cfg.OcrService.VenvPath)
+            ? cfg.OcrService.VenvPath
+            : Path.Combine(serverDir, cfg.OcrService.VenvPath);
+        var pythonExe = Path.Combine(venvDir, "Scripts", "python.exe");
+        var serverScript = Path.Combine(serverDir, cfg.OcrService.ServerScript);
+        _logger.LogInformation("ServerDir={ServerDir}, Python={Python}, Script={Script}", serverDir, pythonExe, serverScript);
 
-        // Kill any existing process on port 8080 (e.g., leftover from manual start)
-        KillExistingServer();
+        // Kill any existing process on port 8080
+        if (cfg.OcrService.KillExistingOnStartup)
+            KillExistingServer();
 
         if (!File.Exists(pythonExe) || !File.Exists(serverScript))
         {
+            _logger.LogError("Python or server script not found");
             _serverState.StatusText = "OCR service not found";
             _serverState.IsStarting = false;
             _serverState.HasError = true;
@@ -126,18 +148,29 @@ internal class ApplicationHostService : IHostedService
         _pythonProcess.StartInfo.Environment["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True";
         _pythonProcess.StartInfo.Environment["PADDLE_PDX_CACHE_HOME"] = Path.Combine(serverDir, "models");
 
+        if (cfg.OcrService.CapturePythonOutput)
+        {
+            _pythonProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) _logger.LogInformation("OCR Server | {Data}", e.Data); };
+            _pythonProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) _logger.LogWarning("OCR Server | {Data}", e.Data); };
+        }
         _pythonProcess.Start();
+        _pythonProcess.BeginOutputReadLine();
+        _pythonProcess.BeginErrorReadLine();
+        _logger.LogInformation("Python process started, PID={Pid}", _pythonProcess.Id);
 
-        // Poll health endpoint — longer timeout for first-run model downloads
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-        for (int i = 1; i <= 120; i++)
+        // Poll health endpoint
+        var sc = cfg.Server;
+        var healthUrl = $"{sc.BaseUrl}/health";
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(sc.HealthTimeoutSeconds) };
+        for (int i = 1; i <= sc.StartupMaxAttempts; i++)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                var resp = await http.GetAsync("http://localhost:8080/health", ct);
+                var resp = await http.GetAsync(healthUrl, ct);
                 if (resp.IsSuccessStatusCode)
                 {
+                    _logger.LogInformation("OCR service healthy after {Attempt} attempts", i);
                     _serverState.StatusText = "OCR service ready";
                     _serverState.IsReady = true;
                     _serverState.IsStarting = false;
@@ -147,10 +180,11 @@ internal class ApplicationHostService : IHostedService
             }
             catch { }
 
-            _serverState.StatusText = $"Waiting for OCR service... ({i}/120)";
-            try { await Task.Delay(1000, ct); } catch { return; }
+            _serverState.StatusText = $"Waiting for OCR service... ({i}/{sc.StartupMaxAttempts})";
+            try { await Task.Delay(sc.StartupPollIntervalMs, ct); } catch { return; }
         }
 
+        _logger.LogError("OCR service timed out after {Attempts} attempts", sc.StartupMaxAttempts);
         _serverState.StatusText = "OCR service timeout";
         _serverState.IsStarting = false;
         _serverState.HasError = true;
@@ -229,19 +263,13 @@ internal class ApplicationHostService : IHostedService
         }
     }
 
-    private static string FindOcrServiceDir()
+    private static string ResolveServiceDirectory(string configured)
     {
-        var dir = AppContext.BaseDirectory;
+        if (Path.IsPathRooted(configured))
+            return configured;
 
-        for (int i = 0; i < 8; i++)
-        {
-            var candidate = Path.Combine(dir, "ocr_service");
-            if (Directory.Exists(candidate))
-                return Path.GetFullPath(candidate);
-            dir = Path.GetDirectoryName(dir)!;
-        }
-
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "ocr_service"));
+        // Resolve relative to app directory
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, configured));
     }
 
     private async Task HandleActivationAsync()

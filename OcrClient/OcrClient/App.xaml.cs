@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Windows;
+using OcrClient.Core.Models;
+using OcrClient.Core.Services;
 using OcrClient.UI.Services;
 using OcrClient.UI.ViewModels;
 using OcrClient.UI.Views;
+using System.Windows;
 using Wpf.Ui;
 using Wpf.Ui.DependencyInjection;
 
@@ -20,7 +22,14 @@ public partial class App : Application
 
     private static void ConfigureServices(IServiceCollection services)
     {
-        services.AddHostedService<ApplicationHostService>();
+        // Configuration — load first so logging can use it
+        var configService = new AppConfigService(Microsoft.Extensions.Logging.Abstractions.NullLogger<AppConfigService>.Instance);
+        services.AddSingleton(configService);
+
+        services.AddLogging(builder => builder.AddClientLogging(configService.Config.Logging));
+
+        services.AddSingleton<ApplicationHostService>();
+        services.AddHostedService(sp => sp.GetRequiredService<ApplicationHostService>());
 
         // Navigation
         services.AddSingleton<INavigationService, NavigationService>();
@@ -37,10 +46,11 @@ public partial class App : Application
         // Core services
         services.AddSingleton<Services.ServerProcessState>();
         services.AddSingleton<Core.Services.OcrApiClient>();
-        services.AddHttpClient<Core.Services.OcrApiClient>(client =>
+        services.AddHttpClient<Core.Services.OcrApiClient>((sp, client) =>
         {
-            client.BaseAddress = new Uri("http://localhost:8080");
-            client.Timeout = TimeSpan.FromMinutes(15);
+            var config = sp.GetRequiredService<AppConfigService>().Config;
+            client.BaseAddress = new Uri(config.Server.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(config.Server.RequestTimeoutSeconds);
         });
     }
 
