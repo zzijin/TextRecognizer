@@ -136,12 +136,6 @@ dotnet run --project OcrClient/OcrClient/OcrClient.UI.csproj
 - OCR 服务（目录路径、脚本名、启动行为）
 - 日志（级别、输出目标、轮转参数）
 
-## 已知问题
-
-- 确认列悬浮窗在 TextBox 获焦时不弹出（▸ 按钮正常）
-- 标准 PaddleOCR 不支持纯数字字符集，形近字符可能误认
-- cuDNN 版本警告（编译 9.9 / 安装 9.5，无功能影响）
-
 ## 未来计划
 
 - Paddle2ONNX 模型转换，进一步提升推理性能
