@@ -92,56 +92,6 @@ public partial class HomeViewModel : ViewModel
 
     private void RebuildCachedGroups()
     {
-        {
-            var items1 = SelectedImage?.Result?.ServerRec?.Items ?? [];
-            var items2 = SelectedImage?.Result?.MobileRec?.Items ?? [];
-            var items3 = SelectedImage?.Result?.EnMobileRec?.Items ?? [];
-
-            //导出识别结果
-            using (FileStream fs = new FileStream(@".\OutData\items1.json", FileMode.Create))
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(items1);
-                using var sw = new StreamWriter(fs);
-                sw.Write(json);
-            }
-            using (FileStream fs = new FileStream(@".\OutData\items2.json", FileMode.Create))
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(items2);
-                using var sw = new StreamWriter(fs);
-                sw.Write(json);
-            }
-            using (FileStream fs = new FileStream(@".\OutData\items3.json", FileMode.Create))
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(items3);
-                using var sw = new StreamWriter(fs);
-                sw.Write(json);
-            }
-            //使用识别结果中的位置对图片imagePath进行标注，并写入OutData中
-            var imagePath = SelectedImage?.FilePath;
-            if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
-            {
-                var outDir = Path.Combine(AppContext.BaseDirectory, "OutData");
-                Directory.CreateDirectory(outDir);
-                var fileName = Path.GetFileNameWithoutExtension(imagePath);
-
-                // Boxes are now in original image coordinates (server no longer resizes manually)
-                using var src1 = Cv2.ImRead(imagePath);
-                AnnotateModel(src1, items1, Scalar.Red, $"{fileName}_server_rec.jpg", outDir);
-                using var src2 = Cv2.ImRead(imagePath);
-                AnnotateModel(src2, items2, Scalar.Lime, $"{fileName}_mobile_rec.jpg", outDir);
-                using var src3 = Cv2.ImRead(imagePath);
-                AnnotateModel(src3, items3, Scalar.Cyan, $"{fileName}_en_mobile_rec.jpg", outDir);
-
-                // Combined: all 3 models on one image
-                using var combined = Cv2.ImRead(imagePath);
-                AnnotateModel(combined, items1, Scalar.Red, $"{fileName}_combined.jpg", outDir, append: true);
-                AnnotateModel(combined, items2, Scalar.Lime, $"{fileName}_combined.jpg", outDir, append: true);
-                AnnotateModel(combined, items3, Scalar.Cyan, $"{fileName}_combined.jpg", outDir, append: true);
-                Cv2.ImWrite(Path.Combine(outDir, $"{fileName}_combined.jpg"), combined);
-                combined.Dispose();
-            }
-        }
-
         _cachedGroups = (SelectedImage?.Result is { } r && IsCrossValidate)
             ? CrossValidateAligner.Align(r) : null;
 
