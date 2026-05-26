@@ -21,7 +21,11 @@ obj/
 .paddleocr/
 PaddleX/
 PaddleOCR/
-models/
+models/fonts
+models/func_ret
+models/locks
+models/temp
+
 
 # OS
 .DS_Store
@@ -45,3 +49,4 @@ TestDatas/ppstructure_v3/
 /ocr_service/logs
 /ocr_service/doc
 /OcrClient/Pulish
+/ocr_service/p2o_test_venv
