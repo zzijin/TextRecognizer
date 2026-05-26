@@ -25,6 +25,7 @@ models/fonts
 models/func_ret
 models/locks
 models/temp
+models/official_models
 
 
 # OS
