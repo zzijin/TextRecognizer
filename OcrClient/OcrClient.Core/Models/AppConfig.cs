@@ -16,9 +16,13 @@ public class AppConfig
 
 public class ServerConfig
 {
-    /// <summary>Base URL of the OCR service.</summary>
+    /// <summary>Base URL of the OCR service. All engines share port 8081.</summary>
     [JsonPropertyName("baseUrl")]
     public string BaseUrl { get; set; } = "http://localhost:8080";
+
+    /// <summary>Inference engine: "onnx_cpu", "onnx_dml", or "paddle". Takes effect after restart.</summary>
+    [JsonPropertyName("engine")]
+    public string Engine { get; set; } = "onnx_cpu";
 
     /// <summary>Max number of health-check poll attempts during startup.</summary>
     [JsonPropertyName("startupMaxAttempts")]
@@ -30,7 +34,7 @@ public class ServerConfig
 
     /// <summary>Health-check request timeout in seconds.</summary>
     [JsonPropertyName("healthTimeoutSeconds")]
-    public int HealthTimeoutSeconds { get; set; } = 3;
+    public int HealthTimeoutSeconds { get; set; } = 10;
 
     /// <summary>Interval (ms) between health-monitor polls once running.</summary>
     [JsonPropertyName("healthMonitorIntervalMs")]
@@ -58,10 +62,6 @@ public class OcrServiceConfig
     /// <summary>Python virtualenv relative path (within ServiceDirectory).</summary>
     [JsonPropertyName("venvPath")]
     public string VenvPath { get; set; } = "venv";
-
-    /// <summary>Python server script name (within ServiceDirectory).</summary>
-    [JsonPropertyName("serverScript")]
-    public string ServerScript { get; set; } = "server.py";
 
     /// <summary>Whether to redirect Python stdout/stderr to the client log.</summary>
     [JsonPropertyName("capturePythonOutput")]

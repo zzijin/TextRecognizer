@@ -9,10 +9,11 @@ public class OcrApiClient
     private readonly HttpClient _http;
     private readonly ILogger<OcrApiClient> _logger;
 
-    public OcrApiClient(HttpClient http, ILogger<OcrApiClient> logger)
+    public OcrApiClient(HttpClient http, AppConfig config, ILogger<OcrApiClient> logger)
     {
         _http = http;
         _logger = logger;
+        _http.BaseAddress = new Uri(config.Server.BaseUrl);
     }
 
     /// <summary>Send base64 image to /ocr/cross_validate and return combined result.</summary>

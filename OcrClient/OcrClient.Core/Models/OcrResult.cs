@@ -59,9 +59,22 @@ public enum RecognitionMode
     EnMobileRec
 }
 
+public enum InferenceEngine
+{
+    Paddle,
+    OnnxDml,
+    OnnxCpu
+}
+
 public record RecognitionModeOption(RecognitionMode Value, string Label)
 {
     public RecognitionMode Value { get; } = Value;
+    public string Label { get; } = Label;
+}
+
+public record InferenceEngineOption(InferenceEngine Value, string Label)
+{
+    public InferenceEngine Value { get; } = Value;
     public string Label { get; } = Label;
 }
 

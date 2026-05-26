@@ -20,6 +20,17 @@ public partial class SettingsViewModel : ViewModel
     [ObservableProperty]
     private string _baseUrl = "http://localhost:8080";
 
+    public record EngineOption(string Value, string Label);
+    public List<EngineOption> EngineOptions { get; } =
+    [
+        new("onnx_cpu", "ONNX CPU"),
+        new("onnx_dml", "ONNX DML (GPU)"),
+        new("paddle", "PaddlePaddle (GPU)"),
+    ];
+
+    [ObservableProperty]
+    private EngineOption _selectedEngineOption = null!;
+
     [ObservableProperty]
     private int _startupMaxAttempts = 120;
 
@@ -27,7 +38,7 @@ public partial class SettingsViewModel : ViewModel
     private int _startupPollIntervalMs = 1000;
 
     [ObservableProperty]
-    private int _healthTimeoutSeconds = 3;
+    private int _healthTimeoutSeconds = 10;
 
     [ObservableProperty]
     private int _healthMonitorIntervalMs = 5000;
@@ -46,9 +57,6 @@ public partial class SettingsViewModel : ViewModel
 
     [ObservableProperty]
     private string _venvPath = "venv";
-
-    [ObservableProperty]
-    private string _serverScript = "server.py";
 
     [ObservableProperty]
     private bool _capturePythonOutput = true;
@@ -91,6 +99,7 @@ public partial class SettingsViewModel : ViewModel
     {
         var c = _configService.Config;
         BaseUrl = c.Server.BaseUrl;
+        SelectedEngineOption = EngineOptions.Find(o => o.Value == c.Server.Engine) ?? EngineOptions[0];
         StartupMaxAttempts = c.Server.StartupMaxAttempts;
         StartupPollIntervalMs = c.Server.StartupPollIntervalMs;
         HealthTimeoutSeconds = c.Server.HealthTimeoutSeconds;
@@ -100,7 +109,6 @@ public partial class SettingsViewModel : ViewModel
         KillExistingOnStartup = c.OcrService.KillExistingOnStartup;
         ServiceDirectory = c.OcrService.ServiceDirectory;
         VenvPath = c.OcrService.VenvPath;
-        ServerScript = c.OcrService.ServerScript;
         CapturePythonOutput = c.OcrService.CapturePythonOutput;
         LogLevel = c.Logging.LogLevel;
         EnableConsoleLog = c.Logging.EnableConsole;
@@ -115,6 +123,7 @@ public partial class SettingsViewModel : ViewModel
     {
         var c = _configService.Config;
         c.Server.BaseUrl = BaseUrl;
+        c.Server.Engine = SelectedEngineOption?.Value ?? "onnx_cpu";
         c.Server.StartupMaxAttempts = StartupMaxAttempts;
         c.Server.StartupPollIntervalMs = StartupPollIntervalMs;
         c.Server.HealthTimeoutSeconds = HealthTimeoutSeconds;
@@ -124,7 +133,6 @@ public partial class SettingsViewModel : ViewModel
         c.OcrService.KillExistingOnStartup = KillExistingOnStartup;
         c.OcrService.ServiceDirectory = ServiceDirectory;
         c.OcrService.VenvPath = VenvPath;
-        c.OcrService.ServerScript = ServerScript;
         c.OcrService.CapturePythonOutput = CapturePythonOutput;
         c.Logging.LogLevel = LogLevel;
         c.Logging.EnableConsole = EnableConsoleLog;
@@ -167,79 +175,119 @@ public partial class SettingsViewModel : ViewModel
     {
         EnvCheckResults.Clear();
         var config = _configService.Config;
+        var engine = SelectedEngineOption?.Value ?? "onnx_cpu";
+        var isOnnx = engine is "onnx_dml" or "onnx_cpu";
+        var isPaddle = engine == "paddle";
+        EnvCheckResults.Add(new("所选引擎", true, engine));
+
         var serverDir = Path.IsPathRooted(config.OcrService.ServiceDirectory)
             ? config.OcrService.ServiceDirectory
             : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, config.OcrService.ServiceDirectory));
 
-        // 1. Python environment
+        var venvDir = Path.IsPathRooted(config.OcrService.VenvPath)
+            ? config.OcrService.VenvPath
+            : Path.Combine(serverDir, config.OcrService.VenvPath);
+        var venvPython = Path.Combine(venvDir, "Scripts", "python.exe");
+
+        // 1. Python
         var pythonPath = GetSystemPython();
         if (string.IsNullOrEmpty(pythonPath))
         {
             EnvCheckResults.Add(new("Python 环境", false, "未找到系统 Python，请安装 Python 3.12+"));
-            OpenUrl("https://www.python.org/downloads/");
         }
         else
         {
             EnvCheckResults.Add(new("Python 环境", true, pythonPath));
         }
 
-        // 2. venv environment
-        var venvDir = Path.IsPathRooted(config.OcrService.VenvPath)
-            ? config.OcrService.VenvPath
-            : Path.Combine(serverDir, config.OcrService.VenvPath);
-        var venvPython = Path.Combine(venvDir, "Scripts", "python.exe");
+        // 2. venv + pip packages
         if (!File.Exists(venvPython))
         {
             EnvCheckResults.Add(new("venv 环境", false, $"虚拟环境不存在: {venvDir}"));
             var batPath = Path.Combine(serverDir, "setup_venv.bat");
-            var gpuUrl = "https://www.paddlepaddle.org.cn/packages/stable/cu126/";
+            var pipPackages = isPaddle
+                ? "paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/ paddleocr==3.5.0 fastapi uvicorn pillow"
+                : engine == "onnx_dml"
+                    ? "fastapi uvicorn pillow opencv-python pyclipper numpy onnxruntime-directml"
+                    : "fastapi uvicorn pillow opencv-python pyclipper numpy onnxruntime";
             File.WriteAllText(batPath,
                 "@echo off\r\n" +
                 $"\"{pythonPath}\" -m venv \"{venvDir}\"\r\n" +
                 $"\"{venvDir}\\Scripts\\python.exe\" -m pip install --upgrade pip\r\n" +
-                $"\"{venvDir}\\Scripts\\python.exe\" -m pip install paddleocr==3.5.0 fastapi uvicorn pillow\r\n" +
-                $"\"{venvDir}\\Scripts\\python.exe\" -m pip install paddlepaddle-gpu==3.3.0 -i {gpuUrl}\r\n" +
-                "echo Done. Press any key to exit.\r\npause\r\n");
+                $"\"{venvDir}\\Scripts\\python.exe\" -m pip install {pipPackages}\r\n" +
+                "echo Done.\r\npause\r\n");
             OpenFolder(serverDir);
-            EnvCheckResults.Add(new(" -> 操作", false, $"已创建 setup_venv.bat，请在打开的文件夹中双击执行"));
+            EnvCheckResults.Add(new(" -> setup_venv.bat", false, "已创建，双击执行安装依赖"));
         }
         else
         {
             EnvCheckResults.Add(new("venv 环境", true, venvDir));
+
+            // verify required packages
+            var requiredPackages = isPaddle
+                ? new[] { "paddlepaddle-gpu", "paddleocr", "fastapi", "uvicorn" }
+                : engine == "onnx_dml"
+                    ? new[] { "onnxruntime-directml", "fastapi", "uvicorn", "opencv-python", "pyclipper" }
+                    : new[] { "onnxruntime", "fastapi", "uvicorn", "opencv-python", "pyclipper" };
+
+            foreach (var pkg in requiredPackages)
+            {
+                try
+                {
+                    using var proc = Process.Start(new ProcessStartInfo(venvPython, $"-c \"import {pkg.Replace("-", "_")}\"")
+                    {
+                        UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true
+                    });
+                    proc?.WaitForExit(5000);
+                    var err = proc?.StandardError.ReadToEnd() ?? "";
+                    EnvCheckResults.Add(new($"  pip: {pkg}", proc?.ExitCode == 0, proc?.ExitCode == 0 ? "已安装" : err.Trim()[..Math.Min(err.Trim().Length, 80)]));
+                }
+                catch (Exception ex)
+                {
+                    EnvCheckResults.Add(new($"  pip: {pkg}", false, ex.Message));
+                }
+            }
         }
 
         // 3. Server script
-        var serverScript = Path.Combine(serverDir, config.OcrService.ServerScript);
-        if (!File.Exists(serverScript))
+        if (isPaddle)
         {
-            EnvCheckResults.Add(new("服务脚本", false, $"未找到: {serverScript}"));
-            OpenUrl("https://github.com/zzijin/TextRecognizer/blob/main/ocr_service/server.py");
+            var sp = Path.Combine(serverDir, "server.py");
+            EnvCheckResults.Add(new("服务脚本", File.Exists(sp), File.Exists(sp) ? sp : "未找到 server.py"));
         }
         else
         {
-            EnvCheckResults.Add(new("服务脚本", true, serverScript));
+            var sp = Path.Combine(serverDir, "server_onnx.py");
+            var ocrSp = Path.Combine(serverDir, "onnx_ocr.py");
+            EnvCheckResults.Add(new("服务脚本 server_onnx.py", File.Exists(sp), File.Exists(sp) ? sp : "未找到"));
+            EnvCheckResults.Add(new("引擎模块 onnx_ocr.py", File.Exists(ocrSp), File.Exists(ocrSp) ? ocrSp : "未找到"));
         }
 
-        // 4. Offline models
-        var modelsDir = Path.Combine(serverDir, "models", "official_models");
-        var requiredModels = new[] { "PP-OCRv5_server_det", "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec" };
-        var missingModels = requiredModels.Where(m => !Directory.Exists(Path.Combine(modelsDir, m))).ToList();
-        if (missingModels.Count > 0)
+        // 4. Models
+        if (isPaddle)
         {
-            EnvCheckResults.Add(new("离线模型", false, $"缺少 {missingModels.Count} 个模型: {string.Join(", ", missingModels)}"));
-            var batPath = Path.Combine(serverDir, "download_models.bat");
-            var cacheDir = modelsDir.Replace("\\", "\\\\");
-            File.WriteAllText(batPath,
-                "@echo off\r\n" +
-                $"set PADDLE_PDX_CACHE_HOME={Path.GetDirectoryName(modelsDir)?.Replace("\\", "\\\\")}\r\n" +
-                $"\"{venvPython}\" -c \"from paddleocr import PaddleOCR; ocr=PaddleOCR(device='gpu', lang='ch')\"\r\n" +
-                "echo Done. Press any key to exit.\r\npause\r\n");
-            OpenFolder(serverDir);
-            EnvCheckResults.Add(new(" -> 操作", false, "已创建 download_models.bat，请在打开的文件夹中双击执行"));
+            var modelsDir = Path.Combine(serverDir, "models", "official_models");
+            var requiredModels = new[] { "PP-OCRv5_server_det", "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec" };
+            var missing = requiredModels.Where(m => !Directory.Exists(Path.Combine(modelsDir, m))).ToList();
+            EnvCheckResults.Add(new("PIR 模型", missing.Count == 0,
+                missing.Count == 0 ? $"{requiredModels.Length} 个就绪" : $"缺少: {string.Join(", ", missing)}"));
         }
         else
         {
-            EnvCheckResults.Add(new("离线模型", true, $"{requiredModels.Length} 个模型就绪"));
+            var onnxDir = Path.Combine(serverDir, "models", "onnx_models");
+            var requiredOnnx = new[] { "PP-OCRv5_server_det.onnx", "PP-OCRv5_server_rec.onnx", "PP-OCRv5_mobile_rec.onnx", "en_PP-OCRv5_mobile_rec.onnx" };
+            var missing = requiredOnnx.Where(f => !File.Exists(Path.Combine(onnxDir, f))).ToList();
+            EnvCheckResults.Add(new("ONNX 模型", missing.Count == 0,
+                missing.Count == 0 ? $"{requiredOnnx.Length} 个就绪" : $"缺少: {string.Join(", ", missing)}"));
+
+            // character dicts (needed for CTC decode)
+            var dictDir = Path.Combine(serverDir, "models", "official_models");
+            var dictModels = new[] { "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec" };
+            foreach (var dm in dictModels)
+            {
+                var cp = Path.Combine(dictDir, dm, "config.json");
+                EnvCheckResults.Add(new($"字符字典 {dm}", File.Exists(cp), File.Exists(cp) ? cp : "未找到"));
+            }
         }
 
         StatusMessage = "环境检测完成";

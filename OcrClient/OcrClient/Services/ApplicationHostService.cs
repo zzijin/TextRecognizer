@@ -37,17 +37,48 @@ public class ApplicationHostService : IHostedService
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _serverCts?.Cancel();
-        StopPythonServer();
+        KillPythonProcess();
         return Task.CompletedTask;
     }
 
     public void Restart()
     {
-        _logger.LogInformation("Manual restart requested");
+        var port = GetPortFromUrl(_configService.Config.Server.BaseUrl);
+        _logger.LogInformation("Manual restart requested (port {Port})", port);
         _serverCts?.Cancel();
-        StopPythonServer();
+        KillPythonProcess();
+        KillPort(port);
         _ = Task.Run(() => StartPythonServerAsync());
     }
+
+    // ── engine → (script, env vars) ──────────────────────────────────────────
+
+    private static (string script, Dictionary<string, string> env) GetEngineConfig(string engine, int port)
+    {
+        var portStr = port.ToString();
+        return engine switch
+        {
+            "paddle" => ("server.py", new Dictionary<string, string>()),
+            "onnx_dml" => ("server_onnx.py", new Dictionary<string, string>
+            {
+                ["ONNX_DEVICE"] = "dml",
+                ["ONNX_PORT"] = portStr,
+            }),
+            _ => ("server_onnx.py", new Dictionary<string, string>
+            {
+                ["ONNX_DEVICE"] = "cpu",
+                ["ONNX_PORT"] = portStr,
+            }),
+        };
+    }
+
+    private static int GetPortFromUrl(string url)
+    {
+        try { return new Uri(url).Port; }
+        catch { return 8081; }
+    }
+
+    // ── health monitor ───────────────────────────────────────────────────────
 
     private async Task StartHealthMonitorAsync(CancellationToken ct)
     {
@@ -74,15 +105,9 @@ public class ApplicationHostService : IHostedService
                     }
                     failCount = 0;
                 }
-                else
-                {
-                    failCount++;
-                }
+                else failCount++;
             }
-            catch
-            {
-                failCount++;
-            }
+            catch { failCount++; }
 
             if (failCount >= cfg.HealthMaxFailures)
             {
@@ -96,10 +121,16 @@ public class ApplicationHostService : IHostedService
         }
     }
 
+    // ── server process management ────────────────────────────────────────────
+
     private async Task StartPythonServerAsync()
     {
         var cfg = _configService.Config;
-        _logger.LogInformation("Starting OCR Python server");
+        var engine = cfg.Server.Engine;
+        var port = GetPortFromUrl(cfg.Server.BaseUrl);
+        var (script, envVars) = GetEngineConfig(engine, port);
+
+        _logger.LogInformation("Starting {Script} (engine={Engine})", script, engine);
         _serverState.StatusText = "Starting OCR service...";
         _serverState.IsStarting = true;
 
@@ -108,24 +139,20 @@ public class ApplicationHostService : IHostedService
             ? cfg.OcrService.VenvPath
             : Path.Combine(serverDir, cfg.OcrService.VenvPath);
         var pythonExe = Path.Combine(venvDir, "Scripts", "python.exe");
-        var serverScript = Path.Combine(serverDir, cfg.OcrService.ServerScript);
+        var serverScript = Path.Combine(serverDir, script);
         _logger.LogInformation("ServerDir={ServerDir}, Python={Python}, Script={Script}", serverDir, pythonExe, serverScript);
 
-        // Kill any existing process on port 8080
         if (cfg.OcrService.KillExistingOnStartup)
-            KillExistingServer();
+            KillPort(port);
 
         if (!File.Exists(pythonExe) || !File.Exists(serverScript))
         {
-            _logger.LogError("Python or server script not found");
+            _logger.LogError("Python or server script not found: {Python}, {Script}", pythonExe, serverScript);
             _serverState.StatusText = "OCR service not found";
             _serverState.IsStarting = false;
             _serverState.HasError = true;
             return;
         }
-
-        // Clean stale filelock locks from previous killed processes
-        CleanStaleLocks();
 
         _serverCts = new CancellationTokenSource();
         var ct = _serverCts.Token;
@@ -145,26 +172,41 @@ public class ApplicationHostService : IHostedService
             EnableRaisingEvents = true,
         };
 
-        _pythonProcess.StartInfo.Environment["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True";
-        _pythonProcess.StartInfo.Environment["PADDLE_PDX_CACHE_HOME"] = Path.Combine(serverDir, "models");
+        foreach (var kv in envVars)
+            _pythonProcess.StartInfo.Environment[kv.Key] = kv.Value;
 
         if (cfg.OcrService.CapturePythonOutput)
         {
-            _pythonProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) _logger.LogInformation("OCR Server | {Data}", e.Data); };
-            _pythonProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) _logger.LogWarning("OCR Server | {Data}", e.Data); };
+            _pythonProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) _logger.LogInformation("OCR | {Data}", e.Data); };
+            _pythonProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) _logger.LogWarning("OCR | {Data}", e.Data); };
         }
+
+        _logger.LogInformation("Starting: {Python} {Args} [dir={Dir}]",
+            pythonExe, _pythonProcess.StartInfo.Arguments, serverDir);
         _pythonProcess.Start();
         _pythonProcess.BeginOutputReadLine();
         _pythonProcess.BeginErrorReadLine();
-        _logger.LogInformation("Python process started, PID={Pid}", _pythonProcess.Id);
+        _logger.LogInformation("Python PID={Pid}, healthUrl={HealthUrl}", _pythonProcess.Id, $"{cfg.Server.BaseUrl}/health");
 
-        // Poll health endpoint
+        // Give the process a moment to fail fast, then check
+        await Task.Delay(2000);
+        if (_pythonProcess.HasExited)
+        {
+            _logger.LogError("Python process exited immediately with code {Code}", _pythonProcess.ExitCode);
+            _serverState.StatusText = "OCR service crashed on startup";
+            _serverState.IsStarting = false;
+            _serverState.HasError = true;
+            return;
+        }
+
+        // Poll health
         var sc = cfg.Server;
         var healthUrl = $"{sc.BaseUrl}/health";
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(sc.HealthTimeoutSeconds) };
+        string lastError = "";
         for (int i = 1; i <= sc.StartupMaxAttempts; i++)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) return;
             try
             {
                 var resp = await http.GetAsync(healthUrl, ct);
@@ -177,12 +219,20 @@ public class ApplicationHostService : IHostedService
                     _ = Task.Run(() => StartHealthMonitorAsync(ct), CancellationToken.None);
                     return;
                 }
+                lastError = $"HTTP {(int)resp.StatusCode}";
             }
-            catch { }
+            catch (Exception ex)
+            {
+                lastError = ex.InnerException?.Message ?? ex.Message;
+            }
 
             _serverState.StatusText = $"Waiting for OCR service... ({i}/{sc.StartupMaxAttempts})";
+            if (i % 5 == 0)
+                _logger.LogWarning("Health check attempt {I}/{Max}: {Error}", i, sc.StartupMaxAttempts, lastError);
             try { await Task.Delay(sc.StartupPollIntervalMs, ct); } catch { return; }
         }
+
+        _logger.LogError("OCR service timed out. Last error: {Error}", lastError);
 
         _logger.LogError("OCR service timed out after {Attempts} attempts", sc.StartupMaxAttempts);
         _serverState.StatusText = "OCR service timeout";
@@ -190,36 +240,26 @@ public class ApplicationHostService : IHostedService
         _serverState.HasError = true;
     }
 
-    private static void CleanStaleLocks()
-    {
-        // Clean locks from both user profile and project-local cache
-        var lockDirs = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".paddlex", "locks"),
-        };
+    // ── process cleanup ──────────────────────────────────────────────────────
 
-        foreach (var locksDir in lockDirs)
+    private void KillPythonProcess()
+    {
+        if (_pythonProcess is { HasExited: false })
         {
-            if (!Directory.Exists(locksDir)) continue;
-            try
-            {
-                foreach (var lockFile in Directory.GetFiles(locksDir, "*.lock", SearchOption.AllDirectories))
-                {
-                    try { File.Delete(lockFile); } catch { }
-                }
-            }
-            catch { }
+            try { _pythonProcess.Kill(entireProcessTree: true); } catch { }
         }
+        _pythonProcess?.Dispose();
+        _pythonProcess = null;
     }
 
-    private static void KillExistingServer()
+    private static void KillPort(int port)
     {
         try
         {
-            var existingPid = GetProcessOnPort(8080);
-            if (existingPid > 0)
+            var pid = GetProcessOnPort(port);
+            if (pid > 0)
             {
-                using var proc = Process.GetProcessById(existingPid);
+                using var proc = Process.GetProcessById(pid);
                 proc.Kill(entireProcessTree: true);
                 proc.WaitForExit(3000);
             }
@@ -254,33 +294,39 @@ public class ApplicationHostService : IHostedService
         return 0;
     }
 
-    private void StopPythonServer()
-    {
-        if (_pythonProcess is { HasExited: false })
-        {
-            _pythonProcess.Kill(entireProcessTree: true);
-            _pythonProcess.Dispose();
-        }
-    }
+    // ── UI helpers ───────────────────────────────────────────────────────────
 
     private static string ResolveServiceDirectory(string configured)
     {
-        if (Path.IsPathRooted(configured))
-            return configured;
+        if (Path.IsPathRooted(configured)) return configured;
 
-        // Resolve relative to app directory
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, configured));
+        // Try relative to app base (works for published single-file)
+        var appDir = AppContext.BaseDirectory;
+        var candidate = Path.GetFullPath(Path.Combine(appDir, configured));
+        if (Directory.Exists(candidate)) return candidate;
+
+        // Walk up from app base to find ocr_service (development builds)
+        var dir = appDir;
+        for (int i = 0; i < 6; i++)
+        {
+            dir = Path.GetDirectoryName(dir);
+            if (dir is null) break;
+            candidate = Path.GetFullPath(Path.Combine(dir, configured));
+            if (Directory.Exists(candidate)) return candidate;
+        }
+
+        // Fallback to the original path
+        return Path.GetFullPath(Path.Combine(appDir, configured));
     }
 
     private async Task HandleActivationAsync()
     {
-        await Task.CompletedTask;
-
         if (!Application.Current.Windows.OfType<MainWindow>().Any())
         {
             _navigationWindow = (_serviceProvider.GetService(typeof(INavigationWindow)) as INavigationWindow)!;
             _navigationWindow!.ShowWindow();
             _navigationWindow.Navigate(typeof(Views.HomePage));
         }
+        await Task.CompletedTask;
     }
 }

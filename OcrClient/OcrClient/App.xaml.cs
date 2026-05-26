@@ -25,6 +25,7 @@ public partial class App : Application
         // Configuration — load first so logging can use it
         var configService = new AppConfigService(Microsoft.Extensions.Logging.Abstractions.NullLogger<AppConfigService>.Instance);
         services.AddSingleton(configService);
+        services.AddSingleton(configService.Config);
 
         services.AddLogging(builder => builder.AddClientLogging(configService.Config.Logging));
 
@@ -45,10 +46,9 @@ public partial class App : Application
 
         // Core services
         services.AddSingleton<Services.ServerProcessState>();
-        services.AddSingleton<Core.Services.OcrApiClient>();
         services.AddHttpClient<Core.Services.OcrApiClient>((sp, client) =>
         {
-            var config = sp.GetRequiredService<AppConfigService>().Config;
+            var config = sp.GetRequiredService<AppConfig>();
             client.BaseAddress = new Uri(config.Server.BaseUrl);
             client.Timeout = TimeSpan.FromSeconds(config.Server.RequestTimeoutSeconds);
         });
