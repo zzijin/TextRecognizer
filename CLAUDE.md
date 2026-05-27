@@ -15,7 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **3-engine architecture** — client Settings page selects: ONNX CPU / ONNX DML (GPU) / PaddlePaddle (GPU), restart-to-apply
 - WPF .NET client with image import (dedup), batch recognition (mode-aware skip), real-time progress with elapsed timer, result display
 - Client auto-starts Python server from venv based on selected engine, restarts on disconnect, kills stale processes on port 8080
-- **Environment check varies by engine** — Settings page detects venv, pip packages, scripts, models per selected engine
+- **Engine source selector** — Settings page: local service (ONNX CPU/DML/Paddle) or Baidu Cloud API
+- **Baidu Cloud OCR** — 2 modes: high-precision (`/accurate`) + standard (`/general`)
+- **Baidu cross-validate** — dual-model weighted scoring (high-precision + standard)
+- **Weighted cross-validation algorithm** — confidence-sum for text selection, average for scoring
+- **Cross-validate thresholds** — auto-confirm 0.85, auto-fill 0.6 (configurable in settings)
+- **Copy results button** — copy confirmed text to clipboard alongside file export
+- **Enter key confirmation** — Enter in TextBox confirms + jumps to next unconfirmed item
+- **Environment check** — detects GPU (DirectX/CUDA) for local, internet connectivity for cloud
 - Recognition rate with ONNX equal to or better than PaddlePaddle
 - Client continuously monitors server health (poll `/health` every 5s based on config)
 - Models cached locally at `ocr_service/models/official_models/` (4 models, ~260MB)
@@ -180,9 +187,30 @@ All share detection model (`PP-OCRv5_server_det`).
 
 ### Client (CrossValidateAligner)
 
-- **Position-based grouping:** All items from 3 models sorted by Y (top to bottom), clustered into rows, then matched by IoU within rows
-- **Agreement:** Per-item — 3=all models agree, 2=two agree, 1=unique
-- **AutoFill:** All green → auto-confirm; has yellow → fill text but don't confirm; all red → leave empty
+Supports N-model cross-validation with configurable model lists. Two modes:
+- **Local cross-validate:** 3 models (PP-OCRv5_server_rec + PP-OCRv5_mobile_rec + en_PP-OCRv5_mobile_rec)
+- **Baidu cross-validate:** 2 models (百度云高精度 + 百度云标准)
+
+**Weighted confirmation algorithm:**
+1. **YX sort & row clustering:** Same as original — sort by Y, cluster into rows, sort by X within rows
+2. **Within-row grouping:** Match items across models by IoU (threshold 0.3) within each Y-row
+3. **Weighted scoring (per group):**
+   - Group items by text, calculate `sum` and `count` of confidences per unique text
+   - **Select best text:** highest `sum` (consensus — more models agreeing wins)
+   - **Score:** `weighted_score = sum / count` (average confidence of the winning text)
+4. **Auto-confirm thresholds** (configurable in settings):
+   - `weighted_score >= CrossValidateAutoConfirmThreshold` (default 0.85) → auto-confirm (green)
+   - `weighted_score >= CrossValidateAutoFillThreshold` (default 0.6) → auto-fill but not confirm (yellow)
+   - Below threshold → no auto-fill (red)
+
+**Scoring examples** (3 models):
+| Scenario | Best text sum | Count | Score | Result |
+|---|---|---|---|---|
+| 0.99+0.95+0.90 all "A" | 2.84 | 3 | 0.947 | Green |
+| "A"(0.90,0.85), "B"(0.40) | 1.75 | 2 | 0.875 | Green |
+| "A"(0.99), "B"(0.50,0.50) | 1.00 (B wins on sum) | 2 | 0.500 | Yellow |
+| "A"(0.45), "B"(0.40), "C"(0.35) | 0.45 | 1 | 0.450 | Red |
+
 - **MergeResult:** Single model results merge into existing CrossValidateResult (additive, not replacement)
 
 ### Client (HomeViewModel)
