@@ -51,3 +51,5 @@ TestDatas/ppstructure_v3/
 /ocr_service/doc
 /OcrClient/Pulish
 /ocr_service/p2o_test_venv
+/ocr_service/models/official_models
+/ocr_service/models/fonts
