@@ -49,6 +49,12 @@ public class CrossValidateResult
 
     [JsonPropertyName("en_mobile_rec")]
     public OcrSingleResult? EnMobileRec { get; set; }
+
+    [JsonPropertyName("baidu_api_rec")]
+    public OcrSingleResult? BaiduApiRec { get; set; }
+
+    [JsonPropertyName("baidu_api_general_rec")]
+    public OcrSingleResult? BaiduApiGeneralRec { get; set; }
 }
 
 public enum RecognitionMode
@@ -56,7 +62,10 @@ public enum RecognitionMode
     CrossValidate,
     ServerRec,
     MobileRec,
-    EnMobileRec
+    EnMobileRec,
+    BaiduApi,
+    BaiduApiGeneral,
+    BaiduCrossValidate
 }
 
 public enum InferenceEngine

@@ -52,6 +52,11 @@ public partial class App : Application
             client.BaseAddress = new Uri(config.Server.BaseUrl);
             client.Timeout = TimeSpan.FromSeconds(config.Server.RequestTimeoutSeconds);
         });
+
+        services.AddHttpClient<Core.Services.BaiduOcrClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
     }
 
     protected override async void OnStartup(StartupEventArgs e)

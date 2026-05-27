@@ -31,20 +31,74 @@
                     <ColumnDefinition Width="160"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="推理引擎" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="0" Text="引擎来源" VerticalAlignment="Center"/>
                 <ComboBox Grid.Column="1"
-                          ItemsSource="{Binding ViewModel.EngineOptions}"
-                          SelectedItem="{Binding ViewModel.SelectedEngineOption}"
+                          ItemsSource="{Binding ViewModel.SourceOptions}"
+                          SelectedValue="{Binding ViewModel.EngineSource}"
+                          SelectedValuePath="Value"
                           DisplayMemberPath="Label"/>
             </Grid>
-            <Grid Margin="0,0,0,6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="160"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="服务地址" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.BaseUrl, UpdateSourceTrigger=PropertyChanged}"/>
-            </Grid>
+
+            <!-- Local service settings -->
+            <StackPanel>
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ViewModel.IsLocalServiceSelected}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="推理引擎" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{Binding ViewModel.EngineOptions}"
+                              SelectedItem="{Binding ViewModel.SelectedEngineOption}"
+                              DisplayMemberPath="Label"/>
+                </Grid>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="服务地址" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.BaseUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+            </StackPanel>
+
+            <!-- Baidu Cloud settings -->
+            <StackPanel>
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ViewModel.IsBaiduCloudSelected}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="API Key" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.BaiduClientId, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Secret Key" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.BaiduClientSecret, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+            </StackPanel>
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="160"/>
@@ -94,46 +148,94 @@
                 <TextBox Grid.Column="1" Text="{Binding ViewModel.RequestTimeoutSeconds, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
 
-            <!-- OCR Service -->
-            <TextBlock Text="OCR 服务" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
+            <!-- Confirmation thresholds -->
+            <TextBlock Text="单模型确认规则" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="160"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="服务目录路径" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.ServiceDirectory, UpdateSourceTrigger=PropertyChanged}"/>
-                <Button Grid.Column="2" Content="浏览" Width="56"
-                        Command="{Binding ViewModel.BrowseServiceDirCommand}"
-                        Margin="6,0,0,0" Padding="6,2"/>
+                <TextBlock Grid.Column="0" Text="自动确认阈值" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.SingleModelAutoConfirmThreshold, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="160"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="虚拟环境路径" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.VenvPath, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBlock Grid.Column="0" Text="自动填写阈值" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.SingleModelAutoFillThreshold, UpdateSourceTrigger=PropertyChanged}"/>
+            </Grid>
+
+            <TextBlock Text="交叉验证确认规则" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="加权自动确认阈值" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateAutoConfirmThreshold, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="160"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="启动时杀掉已有服务" VerticalAlignment="Center"/>
-                <CheckBox Grid.Column="1" VerticalAlignment="Center"
-                          IsChecked="{Binding ViewModel.KillExistingOnStartup}"/>
+                <TextBlock Grid.Column="0" Text="加权自动填写阈值" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateAutoFillThreshold, UpdateSourceTrigger=PropertyChanged}"/>
             </Grid>
-            <Grid Margin="0,0,0,6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="160"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="捕获 Python 输出日志" VerticalAlignment="Center"/>
-                <CheckBox Grid.Column="1" VerticalAlignment="Center"
-                          IsChecked="{Binding ViewModel.CapturePythonOutput}"/>
-            </Grid>
+
+            <!-- OCR 本地服务 (only shown when local service selected) -->
+            <StackPanel>
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ViewModel.IsLocalServiceSelected}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <TextBlock Text="OCR 本地服务" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="服务目录路径" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.ServiceDirectory, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Button Grid.Column="2" Content="浏览" Width="56"
+                            Command="{Binding ViewModel.BrowseServiceDirCommand}"
+                            Margin="6,0,0,0" Padding="6,2"/>
+                </Grid>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="虚拟环境路径" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.VenvPath, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="启动时杀掉已有服务" VerticalAlignment="Center"/>
+                    <CheckBox Grid.Column="1" VerticalAlignment="Center"
+                              IsChecked="{Binding ViewModel.KillExistingOnStartup}"/>
+                </Grid>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="捕获 Python 输出日志" VerticalAlignment="Center"/>
+                    <CheckBox Grid.Column="1" VerticalAlignment="Center"
+                              IsChecked="{Binding ViewModel.CapturePythonOutput}"/>
+                </Grid>
+            </StackPanel>
 
             <!-- Environment check -->
             <TextBlock Text="环境检测" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
@@ -179,11 +281,8 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                     </ItemsControl>
-
-                    <TextBlock Text="{Binding ViewModel.StatusMessage}"
-                       FontSize="13" Margin="0,10,0,0"
-                       Foreground="{DynamicResource SystemFillColorSuccessBrush}"/>
                 </StackPanel>
+
 
             <!-- Logging -->
             <TextBlock Text="日志" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
@@ -254,6 +353,10 @@
                            Content="恢复默认"
                            Icon="{ui:SymbolIcon ArrowReset24}"/>
             </StackPanel>
+
+            <TextBlock Text="{Binding ViewModel.StatusMessage}"
+                       FontSize="13" Margin="0,10,0,0"
+                       Foreground="{DynamicResource SystemFillColorSuccessBrush}"/>
 
         </StackPanel>
     </ScrollViewer>

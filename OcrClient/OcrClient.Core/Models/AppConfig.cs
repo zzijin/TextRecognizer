@@ -20,9 +20,37 @@ public class ServerConfig
     [JsonPropertyName("baseUrl")]
     public string BaseUrl { get; set; } = "http://localhost:8080";
 
-    /// <summary>Inference engine: "onnx_cpu", "onnx_dml", or "paddle". Takes effect after restart.</summary>
+    /// <summary>Engine source: "local_service", "baidu_cloud", or "onnx_csharp" (placeholder).</summary>
+    [JsonPropertyName("engineSource")]
+    public string EngineSource { get; set; } = "local_service";
+
+    /// <summary>Inference engine for local service: "onnx_cpu", "onnx_dml", or "paddle". Takes effect after restart.</summary>
     [JsonPropertyName("engine")]
     public string Engine { get; set; } = "onnx_cpu";
+
+    /// <summary>Baidu Cloud API Key (client_id).</summary>
+    [JsonPropertyName("baiduClientId")]
+    public string BaiduClientId { get; set; } = "";
+
+    /// <summary>Baidu Cloud Secret Key (client_secret).</summary>
+    [JsonPropertyName("baiduClientSecret")]
+    public string BaiduClientSecret { get; set; } = "";
+
+    /// <summary>Single model: auto-confirm when confidence >= this value (0-1).</summary>
+    [JsonPropertyName("singleModelAutoConfirmThreshold")]
+    public double SingleModelAutoConfirmThreshold { get; set; } = 0.99;
+
+    /// <summary>Single model: auto-fill (but not confirm) when confidence >= this value (0-1).</summary>
+    [JsonPropertyName("singleModelAutoFillThreshold")]
+    public double SingleModelAutoFillThreshold { get; set; } = 0.95;
+
+    /// <summary>Cross-validate: auto-confirm when weighted_score >= this value (0-1).</summary>
+    [JsonPropertyName("crossValidateAutoConfirmThreshold")]
+    public double CrossValidateAutoConfirmThreshold { get; set; } = 0.85;
+
+    /// <summary>Cross-validate: auto-fill (but not confirm) when weighted_score >= this value (0-1).</summary>
+    [JsonPropertyName("crossValidateAutoFillThreshold")]
+    public double CrossValidateAutoFillThreshold { get; set; } = 0.6;
 
     /// <summary>Max number of health-check poll attempts during startup.</summary>
     [JsonPropertyName("startupMaxAttempts")]

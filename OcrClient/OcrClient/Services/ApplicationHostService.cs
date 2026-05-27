@@ -28,6 +28,16 @@ public class ApplicationHostService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (_configService.Config.Server.EngineSource == "baidu_cloud")
+        {
+            _logger.LogInformation("Baidu Cloud mode, skipping local server start");
+            _serverState.StatusText = "云端服务就绪";
+            _serverState.IsReady = true;
+            _serverState.IsStarting = false;
+            await HandleActivationAsync();
+            return;
+        }
+
         _serverState.StatusText = "Connecting...";
         _serverState.IsStarting = true;
         await HandleActivationAsync();

@@ -7,6 +7,7 @@ using OcrClient.UI.Services;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 
 namespace OcrClient.UI.ViewModels;
 
@@ -20,6 +21,31 @@ public partial class SettingsViewModel : ViewModel
     [ObservableProperty]
     private string _baseUrl = "http://localhost:8080";
 
+    // ── Engine source ────────────────────────────────────────────────────────
+
+    public record SourceOption(string Value, string Label);
+
+    [ObservableProperty]
+    private string _engineSource = "local_service";
+
+    public List<SourceOption> SourceOptions { get; } =
+    [
+        new("local_service", "本地服务"),
+        new("baidu_cloud", "PaddleOCR云服务"),
+        new("onnx_csharp", "ONNX For CSharp（待支持）"),
+    ];
+
+    public bool IsLocalServiceSelected => EngineSource == "local_service";
+    public bool IsBaiduCloudSelected => EngineSource == "baidu_cloud";
+
+    partial void OnEngineSourceChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsLocalServiceSelected));
+        OnPropertyChanged(nameof(IsBaiduCloudSelected));
+    }
+
+    // ── Local engine ─────────────────────────────────────────────────────────
+
     public record EngineOption(string Value, string Label);
     public List<EngineOption> EngineOptions { get; } =
     [
@@ -30,6 +56,28 @@ public partial class SettingsViewModel : ViewModel
 
     [ObservableProperty]
     private EngineOption _selectedEngineOption = null!;
+
+    // ── Baidu Cloud ──────────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private string _baiduClientId = "";
+
+    [ObservableProperty]
+    private string _baiduClientSecret = "";
+
+    // ── Thresholds ───────────────────────────────────────────────────────────
+
+    [ObservableProperty]
+    private double _singleModelAutoConfirmThreshold = 0.99;
+
+    [ObservableProperty]
+    private double _singleModelAutoFillThreshold = 0.95;
+
+    [ObservableProperty]
+    private double _crossValidateAutoConfirmThreshold = 0.85;
+
+    [ObservableProperty]
+    private double _crossValidateAutoFillThreshold = 0.6;
 
     [ObservableProperty]
     private int _startupMaxAttempts = 120;
@@ -99,7 +147,14 @@ public partial class SettingsViewModel : ViewModel
     {
         var c = _configService.Config;
         BaseUrl = c.Server.BaseUrl;
+        EngineSource = c.Server.EngineSource;
         SelectedEngineOption = EngineOptions.Find(o => o.Value == c.Server.Engine) ?? EngineOptions[0];
+        BaiduClientId = c.Server.BaiduClientId;
+        BaiduClientSecret = c.Server.BaiduClientSecret;
+        SingleModelAutoConfirmThreshold = c.Server.SingleModelAutoConfirmThreshold;
+        SingleModelAutoFillThreshold = c.Server.SingleModelAutoFillThreshold;
+        CrossValidateAutoConfirmThreshold = c.Server.CrossValidateAutoConfirmThreshold;
+        CrossValidateAutoFillThreshold = c.Server.CrossValidateAutoFillThreshold;
         StartupMaxAttempts = c.Server.StartupMaxAttempts;
         StartupPollIntervalMs = c.Server.StartupPollIntervalMs;
         HealthTimeoutSeconds = c.Server.HealthTimeoutSeconds;
@@ -123,7 +178,14 @@ public partial class SettingsViewModel : ViewModel
     {
         var c = _configService.Config;
         c.Server.BaseUrl = BaseUrl;
+        c.Server.EngineSource = EngineSource;
         c.Server.Engine = SelectedEngineOption?.Value ?? "onnx_cpu";
+        c.Server.BaiduClientId = BaiduClientId;
+        c.Server.BaiduClientSecret = BaiduClientSecret;
+        c.Server.SingleModelAutoConfirmThreshold = SingleModelAutoConfirmThreshold;
+        c.Server.SingleModelAutoFillThreshold = SingleModelAutoFillThreshold;
+        c.Server.CrossValidateAutoConfirmThreshold = CrossValidateAutoConfirmThreshold;
+        c.Server.CrossValidateAutoFillThreshold = CrossValidateAutoFillThreshold;
         c.Server.StartupMaxAttempts = StartupMaxAttempts;
         c.Server.StartupPollIntervalMs = StartupPollIntervalMs;
         c.Server.HealthTimeoutSeconds = HealthTimeoutSeconds;
@@ -178,6 +240,7 @@ public partial class SettingsViewModel : ViewModel
         var engine = SelectedEngineOption?.Value ?? "onnx_cpu";
         var isOnnx = engine is "onnx_dml" or "onnx_cpu";
         var isPaddle = engine == "paddle";
+        var isBaidu = engine is "baidu_cloud";
         EnvCheckResults.Add(new("所选引擎", true, engine));
 
         var serverDir = Path.IsPathRooted(config.OcrService.ServiceDirectory)
@@ -287,6 +350,39 @@ public partial class SettingsViewModel : ViewModel
             {
                 var cp = Path.Combine(dictDir, dm, "config.json");
                 EnvCheckResults.Add(new($"字符字典 {dm}", File.Exists(cp), File.Exists(cp) ? cp : "未找到"));
+            }
+        }
+
+        // 5. GPU / Internet check
+        if (isOnnx || isPaddle)
+        {
+            bool hasD3d = false;
+            bool hasCuda = false;
+            try { hasD3d = System.Runtime.InteropServices.NativeLibrary.TryLoad("d3d11.dll", out _); } catch { }
+            try { hasCuda = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CUDA_PATH")); } catch { }
+
+            if (hasD3d && hasCuda)
+                EnvCheckResults.Add(new("GPU 检测", true, "DirectX 可用 (DML) + CUDA 环境变量已设置 (Paddle)"));
+            else if (hasD3d)
+                EnvCheckResults.Add(new("GPU 检测", true, "DirectX 可用 (支持 DML GPU)"));
+            else if (hasCuda)
+                EnvCheckResults.Add(new("GPU 检测", true, "CUDA 环境变量已设置 (支持 Paddle GPU)"));
+            else
+                EnvCheckResults.Add(new("GPU 检测", false, "未检测到 DirectX 或 CUDA，GPU加速可能不可用"));
+        }
+
+        if (isBaidu)
+        {
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                var resp = http.Send(new HttpRequestMessage(HttpMethod.Head, "https://aip.baidubce.com"));
+                EnvCheckResults.Add(new("网络检测", resp.IsSuccessStatusCode,
+                    resp.IsSuccessStatusCode ? "百度云API可达" : $"HTTP {(int)resp.StatusCode}"));
+            }
+            catch (Exception ex)
+            {
+                EnvCheckResults.Add(new("网络检测", false, $"百度云API不可达: {ex.Message}"));
             }
         }
 

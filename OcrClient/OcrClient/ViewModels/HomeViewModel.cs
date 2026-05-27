@@ -17,9 +17,11 @@ namespace OcrClient.UI.ViewModels;
 public partial class HomeViewModel : ViewModel
 {
     private readonly OcrApiClient _ocrClient;
+    private readonly BaiduOcrClient _baiduClient;
     private readonly ServerProcessState _serverState;
     private readonly ILogger<HomeViewModel> _logger;
     private readonly ApplicationHostService _appHost;
+    private readonly AppConfigService _configService;
     private CancellationTokenSource? _cts;
 
     [ObservableProperty]
@@ -55,21 +57,40 @@ public partial class HomeViewModel : ViewModel
     [ObservableProperty]
     private RecognitionMode _selectedMode = RecognitionMode.CrossValidate;
 
-    public List<RecognitionModeOption> ModeOptions { get; } =
-    [
-        new(RecognitionMode.CrossValidate, "交叉验证（三模型）"),
-        new(RecognitionMode.ServerRec, "PP-OCRv5_server_rec"),
-        new(RecognitionMode.MobileRec, "PP-OCRv5_mobile_rec"),
-        new(RecognitionMode.EnMobileRec, "en_PP-OCRv5_mobile_rec"),
-    ];
+    public bool IsBaiduCloud => _configService.Config.Server.EngineSource == "baidu_cloud";
+    public bool IsLocalService => _configService.Config.Server.EngineSource is "local_service" or "";
 
-    public bool IsCrossValidate => SelectedMode == RecognitionMode.CrossValidate;
+    public List<RecognitionModeOption> ModeOptions =>
+        IsBaiduCloud
+        ? [
+            new(RecognitionMode.BaiduCrossValidate, "百度云交叉验证（双模型）"),
+            new(RecognitionMode.BaiduApi, "百度云智能API(高精度含位置版)"),
+            new(RecognitionMode.BaiduApiGeneral, "百度云智能API(标准含位置版)"),
+        ]
+        : [
+            new(RecognitionMode.CrossValidate, "交叉验证（三模型）"),
+            new(RecognitionMode.ServerRec, "PP-OCRv5_server_rec"),
+            new(RecognitionMode.MobileRec, "PP-OCRv5_mobile_rec"),
+            new(RecognitionMode.EnMobileRec, "en_PP-OCRv5_mobile_rec"),
+        ];
+
+    public bool IsCrossValidate => SelectedMode is RecognitionMode.CrossValidate or RecognitionMode.BaiduCrossValidate;
+
+    public string CrossValidateHeader1 => SelectedMode == RecognitionMode.BaiduCrossValidate
+        ? "百度云(高精度)" : "PP-OCRv5_server_rec";
+    public string CrossValidateHeader2 => SelectedMode == RecognitionMode.BaiduCrossValidate
+        ? "百度云(标准)" : "PP-OCRv5_mobile_rec";
+    public string CrossValidateHeader3 => SelectedMode == RecognitionMode.BaiduCrossValidate
+        ? "" : "en_PP-OCRv5_mobile_rec";
 
     public string SingleModelLabel => SelectedMode switch
     {
         RecognitionMode.ServerRec => "PP-OCRv5_server_rec",
         RecognitionMode.MobileRec => "PP-OCRv5_mobile_rec",
         RecognitionMode.EnMobileRec => "en_PP-OCRv5_mobile_rec",
+        RecognitionMode.BaiduApi => "百度云智能API(高精度)",
+        RecognitionMode.BaiduApiGeneral => "百度云智能API(标准)",
+        RecognitionMode.BaiduCrossValidate => "百度云交叉验证",
         _ => ""
     };
 
@@ -77,7 +98,9 @@ public partial class HomeViewModel : ViewModel
     {
         OnPropertyChanged(nameof(IsCrossValidate));
         OnPropertyChanged(nameof(SingleModelLabel));
-        OnPropertyChanged(nameof(SingleResultItems));
+        OnPropertyChanged(nameof(CrossValidateHeader1));
+        OnPropertyChanged(nameof(CrossValidateHeader2));
+        OnPropertyChanged(nameof(CrossValidateHeader3));
         RebuildCachedGroups();
     }
 
@@ -86,14 +109,64 @@ public partial class HomeViewModel : ViewModel
     partial void OnSelectedImageChanged(ImageFileItem? value)
     {
         HasSelection = value is not null;
-        OnPropertyChanged(nameof(SingleResultItems));
         RebuildCachedGroups();
     }
 
     private void RebuildCachedGroups()
     {
-        _cachedGroups = (SelectedImage?.Result is { } r && IsCrossValidate)
-            ? CrossValidateAligner.Align(r) : null;
+        if (SelectedImage?.Result is not { } r)
+        {
+            _cachedGroups = null;
+        }
+        else if (IsCrossValidate)
+        {
+            var cfg = _configService.Config.Server;
+            List<List<OcrItem>> modelResults;
+            List<string> modelNames;
+
+            if (SelectedMode == RecognitionMode.BaiduCrossValidate)
+            {
+                // Baidu dual model cross-validate
+                modelResults = [r.BaiduApiRec?.Items ?? [], r.BaiduApiGeneralRec?.Items ?? []];
+                modelNames = ["百度云(高精度)", "百度云(标准)"];
+            }
+            else
+            {
+                // Local 3-model cross-validate
+                modelResults = [r.ServerRec?.Items ?? [], r.MobileRec?.Items ?? [], r.EnMobileRec?.Items ?? []];
+                modelNames = ["PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec"];
+            }
+
+            _cachedGroups = CrossValidateAligner.Align(
+                modelResults, modelNames,
+                cfg.CrossValidateAutoConfirmThreshold,
+                cfg.CrossValidateAutoFillThreshold);
+        }
+        else
+        {
+            // Single model: convert to CrossValidateGroup with confidence-based agreement
+            var items = SelectedMode switch
+            {
+                RecognitionMode.ServerRec => r.ServerRec?.Items,
+                RecognitionMode.MobileRec => r.MobileRec?.Items,
+                RecognitionMode.EnMobileRec => r.EnMobileRec?.Items,
+                RecognitionMode.BaiduApi => r.BaiduApiRec?.Items,
+                RecognitionMode.BaiduApiGeneral => r.BaiduApiGeneralRec?.Items,
+                _ => null
+            };
+            if (items is not null && items.Count > 0)
+            {
+                var cfg = _configService.Config.Server;
+                _cachedGroups = CrossValidateAligner.AlignSingleModel(
+                    items, SingleModelLabel,
+                    cfg.SingleModelAutoConfirmThreshold,
+                    cfg.SingleModelAutoFillThreshold);
+            }
+            else
+            {
+                _cachedGroups = null;
+            }
+        }
 
         if (_cachedGroups is not null)
         {
@@ -147,19 +220,10 @@ public partial class HomeViewModel : ViewModel
     public bool AllConfirmed =>
         CrossValidateGroups is { Count: > 0 } g && g.All(x => x.IsConfirmed);
 
-    public List<OcrItem>? SingleResultItems => SelectedImage?.Result switch
-    {
-        null => null,
-        _ => SelectedMode switch
-        {
-            RecognitionMode.ServerRec => SelectedImage.Result.ServerRec?.Items,
-            RecognitionMode.MobileRec => SelectedImage.Result.MobileRec?.Items,
-            RecognitionMode.EnMobileRec => SelectedImage.Result.EnMobileRec?.Items,
-            _ => null
-        }
-    };
+    /// <summary>Called by code-behind (e.g. Enter key) to refresh AllConfirmed binding.</summary>
+    public void NotifyAllConfirmed() => OnPropertyChanged(nameof(AllConfirmed));
 
-    public bool CanStartRecognition => _serverState.IsReady && !IsBusy && Images.Count > 0;
+    public bool CanStartRecognition => (IsBaiduCloud || _serverState.IsReady) && !IsBusy && Images.Count > 0;
 
     [RelayCommand]
     private void RestartServer()
@@ -177,12 +241,18 @@ public partial class HomeViewModel : ViewModel
     public bool IsServerStarting => _serverState.IsStarting;
     public bool IsServerError => _serverState.HasError;
 
-    public HomeViewModel(OcrApiClient ocrClient, ServerProcessState serverState, ILogger<HomeViewModel> logger, ApplicationHostService appHost)
+    public HomeViewModel(OcrApiClient ocrClient, BaiduOcrClient baiduClient, ServerProcessState serverState, ILogger<HomeViewModel> logger, ApplicationHostService appHost, AppConfigService configService)
     {
         _ocrClient = ocrClient;
+        _baiduClient = baiduClient;
         _serverState = serverState;
         _logger = logger;
         _appHost = appHost;
+        _configService = configService;
+
+        // Set default mode for Baidu Cloud
+        if (IsBaiduCloud)
+            _selectedMode = RecognitionMode.BaiduCrossValidate;
 
         _serverState.PropertyChanged += (_, _) =>
         {
@@ -332,20 +402,50 @@ public partial class HomeViewModel : ViewModel
                             item.Result = MergeResult(item.Result, RecognitionMode.EnMobileRec, await _ocrClient.RecognizeEnMobileAsync(base64, token));
                             item.CompletedModes.Add(RecognitionMode.EnMobileRec);
                             break;
+                        case RecognitionMode.BaiduCrossValidate:
+                            var accResult = await _baiduClient.RecognizeAsync(base64,
+                                _configService.Config.Server.BaiduClientId,
+                                _configService.Config.Server.BaiduClientSecret,
+                                accurate: true, token);
+                            var genResult = await _baiduClient.RecognizeAsync(base64,
+                                _configService.Config.Server.BaiduClientId,
+                                _configService.Config.Server.BaiduClientSecret,
+                                accurate: false, token);
+                            var merged = new CrossValidateResult
+                            {
+                                BaiduApiRec = accResult,
+                                BaiduApiGeneralRec = genResult
+                            };
+                            item.Result = merged;
+                            item.CompletedModes.Add(RecognitionMode.BaiduCrossValidate);
+                            break;
+                        case RecognitionMode.BaiduApi:
+                            var baiduAccResult = await _baiduClient.RecognizeAsync(base64,
+                                _configService.Config.Server.BaiduClientId,
+                                _configService.Config.Server.BaiduClientSecret,
+                                accurate: true, token);
+                            item.Result = MergeResult(null, RecognitionMode.BaiduApi, baiduAccResult);
+                            item.CompletedModes.Add(RecognitionMode.BaiduApi);
+                            break;
+                        case RecognitionMode.BaiduApiGeneral:
+                            var baiduGenResult = await _baiduClient.RecognizeAsync(base64,
+                                _configService.Config.Server.BaiduClientId,
+                                _configService.Config.Server.BaiduClientSecret,
+                                accurate: false, token);
+                            item.Result = MergeResult(null, RecognitionMode.BaiduApiGeneral, baiduGenResult);
+                            item.CompletedModes.Add(RecognitionMode.BaiduApiGeneral);
+                            break;
                     }
                     sw.Stop();
                     _logger.LogInformation("Done: {FileName} in {ElapsedMs}ms, {Count} items",
                         item.FileName, sw.ElapsedMilliseconds,
-                        item.Result?.ServerRec?.Count ?? item.Result?.MobileRec?.Count ?? item.Result?.EnMobileRec?.Count ?? 0);
+                        item.Result?.ServerRec?.Count ?? item.Result?.MobileRec?.Count ?? item.Result?.EnMobileRec?.Count ?? item.Result?.BaiduApiRec?.Count ?? 0);
 
                     if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                         LogResultDetails(item);
                     item.Status = ImageFileStatus.Completed;
                     if (item == SelectedImage)
-                    {
                         RebuildCachedGroups();
-                        OnPropertyChanged(nameof(SingleResultItems));
-                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -414,32 +514,6 @@ public partial class HomeViewModel : ViewModel
     }
 
     [RelayCommand]
-    private void ExportSingleResults()
-    {
-        var items = SingleResultItems;
-        if (items is null || items.Count == 0) return;
-
-        var imageName = Path.GetFileNameWithoutExtension(SelectedImage?.FilePath ?? "result");
-        var modelSuffix = SelectedMode switch
-        {
-            RecognitionMode.ServerRec => "server_rec",
-            RecognitionMode.MobileRec => "mobile_rec",
-            RecognitionMode.EnMobileRec => "en_mobile_rec",
-            _ => ""
-        };
-        var dialog = new SaveFileDialog
-        {
-            Filter = "文本文件|*.txt",
-            Title = "导出识别结果",
-            FileName = $"{imageName}_{modelSuffix}.txt"
-        };
-        if (dialog.ShowDialog() != true) return;
-
-        var lines = items.Select(i => i.Text);
-        File.WriteAllLines(dialog.FileName, lines);
-    }
-
-    [RelayCommand]
     private void ExportResults()
     {
         if (_cachedGroups is null) return;
@@ -459,6 +533,18 @@ public partial class HomeViewModel : ViewModel
         File.WriteAllLines(dialog.FileName, lines);
     }
 
+    [RelayCommand]
+    private void CopyResults()
+    {
+        if (_cachedGroups is null) return;
+
+        var lines = _cachedGroups
+            .Where(g => g.IsConfirmed && !string.IsNullOrEmpty(g.ConfirmedText))
+            .Select(g => g.ConfirmedText);
+        var text = string.Join(Environment.NewLine, lines);
+        Clipboard.SetText(text);
+    }
+
     private static CrossValidateResult MergeResult(CrossValidateResult? existing, RecognitionMode mode, OcrSingleResult result)
     {
         var merged = existing ?? new CrossValidateResult();
@@ -467,6 +553,9 @@ public partial class HomeViewModel : ViewModel
             case RecognitionMode.ServerRec: merged.ServerRec = result; break;
             case RecognitionMode.MobileRec: merged.MobileRec = result; break;
             case RecognitionMode.EnMobileRec: merged.EnMobileRec = result; break;
+            case RecognitionMode.BaiduApi: merged.BaiduApiRec = result; break;
+            case RecognitionMode.BaiduApiGeneral: merged.BaiduApiGeneralRec = result; break;
+            case RecognitionMode.BaiduCrossValidate: break; // handled directly in recognition switch
         }
         return merged;
     }

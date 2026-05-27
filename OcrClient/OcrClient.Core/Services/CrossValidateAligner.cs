@@ -7,21 +7,29 @@ public static class CrossValidateAligner
 {
     private const double IouThreshold = 0.3;
 
-    public static List<CrossValidateGroup> Align(CrossValidateResult result)
+    /// <summary>
+    /// Align multiple models into CrossValidateGroup format.
+    /// Each sub-list represents one model's recognition results.
+    /// </summary>
+    public static List<CrossValidateGroup> Align(
+        List<List<OcrItem>> modelResults,
+        List<string> modelNames,
+        double autoConfirmThreshold = 0.8,
+        double autoFillThreshold = 0.5)
     {
-        var items1 = result.ServerRec?.Items ?? [];
-        var items2 = result.MobileRec?.Items ?? [];
-        var items3 = result.EnMobileRec?.Items ?? [];
+        int modelCount = modelResults.Count;
+        if (modelCount == 0) return [];
+        if (modelResults.All(m => m.Count == 0)) return [];
 
-        // Collect all items from all 3 models into a flat list
+        // Flatten with source index
         var all = new List<(int source, OcrItem item)>();
-        foreach (var item in items1) all.Add((0, item));
-        foreach (var item in items2) all.Add((1, item));
-        foreach (var item in items3) all.Add((2, item));
+        for (int s = 0; s < modelCount; s++)
+            foreach (var item in modelResults[s])
+                all.Add((s, item));
 
         if (all.Count == 0) return [];
 
-        // Sort by Y center (top to bottom), then by X (left to right)
+        // Sort by Y center, then X
         all.Sort((a, b) =>
         {
             var aCY = a.item.BoundingRect.Y + a.item.BoundingRect.Height / 2.0;
@@ -30,7 +38,7 @@ public static class CrossValidateAligner
             return yCmp != 0 ? yCmp : a.item.BoundingRect.X.CompareTo(b.item.BoundingRect.X);
         });
 
-        // Cluster into Y-rows using half the average box height as threshold
+        // Y-row clustering
         double avgHeight = all.Average(a => a.item.BoundingRect.Height);
         double rowThreshold = Math.Max(avgHeight * 0.5, 10);
 
@@ -44,7 +52,6 @@ public static class CrossValidateAligner
             if (Math.Abs(itemCY - rowCenterY) < rowThreshold)
             {
                 currentRow.Add(all[i]);
-                // Weighted average toward new item to handle gradual Y drift
                 rowCenterY = (rowCenterY * (currentRow.Count - 1) + itemCY) / currentRow.Count;
             }
             else
@@ -56,7 +63,7 @@ public static class CrossValidateAligner
         }
         yRows.Add(currentRow);
 
-        // Within each Y-row, sort by X and group items at similar positions across models
+        // Within each row, sort by X and group overlapping items
         var groups = new List<CrossValidateGroup>();
         foreach (var row in yRows)
         {
@@ -68,33 +75,32 @@ public static class CrossValidateAligner
                 if (used[i]) continue;
                 var (srcI, itemI) = row[i];
 
-                var groupItems = new CrossValidateGroupItem[3];
-                var boxes = new List<List<double>>?[3];
-                groupItems[srcI] = MakeItem(_modelNames[srcI], itemI);
+                var groupItems = new CrossValidateGroupItem[modelCount];
+                var boxes = new List<List<double>>?[modelCount];
+                groupItems[srcI] = MakeItem(modelNames[srcI], itemI);
                 boxes[srcI] = itemI.Box;
                 used[i] = true;
 
-                // Find items from OTHER models overlapping in X within this row
                 for (int j = i + 1; j < row.Count; j++)
                 {
                     if (used[j]) continue;
                     var (srcJ, itemJ) = row[j];
-                    if (srcJ == srcI) continue; // same model at different X → separate group
+                    if (srcJ == srcI) continue;
 
                     if (itemI.Box is not null && itemJ.Box is not null &&
                         ComputeIoU(itemI.Box, itemJ.Box) >= IouThreshold)
                     {
-                        groupItems[srcJ] = MakeItem(_modelNames[srcJ], itemJ);
+                        groupItems[srcJ] = MakeItem(modelNames[srcJ], itemJ);
                         boxes[srcJ] = itemJ.Box;
                         used[j] = true;
                     }
                 }
 
-                for (int s = 0; s < 3; s++)
+                for (int s = 0; s < modelCount; s++)
                     groupItems[s] ??= Placeholder();
 
                 var itemList = groupItems.ToList();
-                ApplyPerItemAgreement(itemList);
+                ApplyWeightedAgreement(itemList, modelCount);
                 groups.Add(new CrossValidateGroup
                 {
                     Items = itemList,
@@ -104,15 +110,145 @@ public static class CrossValidateAligner
             }
         }
 
-        AutoFillConfirmation(groups);
+        AutoFillByWeight(groups, autoConfirmThreshold, autoFillThreshold);
         return groups;
     }
 
-    private static readonly string[] _modelNames = [
-        "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec"
-    ];
+    /// <summary>
+    /// Single-model alignment with YX sort and confidence-based agreement.
+    /// </summary>
+    public static List<CrossValidateGroup> AlignSingleModel(
+        List<OcrItem> items, string modelName,
+        double autoConfirmThreshold, double autoFillThreshold)
+    {
+        if (items.Count == 0) return [];
 
-    private static void AutoFillConfirmation(List<CrossValidateGroup> groups)
+        items.Sort((a, b) =>
+        {
+            var aCY = a.BoundingRect.Y + a.BoundingRect.Height / 2.0;
+            var bCY = b.BoundingRect.Y + b.BoundingRect.Height / 2.0;
+            int yCmp = aCY.CompareTo(bCY);
+            return yCmp != 0 ? yCmp : a.BoundingRect.X.CompareTo(b.BoundingRect.X);
+        });
+
+        double avgHeight = items.Average(i => i.BoundingRect.Height);
+        double rowThreshold = Math.Max(avgHeight * 0.5, 10);
+
+        var yRows = new List<List<OcrItem>>();
+        var currentRow = new List<OcrItem> { items[0] };
+        double rowCenterY = items[0].BoundingRect.Y + items[0].BoundingRect.Height / 2.0;
+
+        for (int i = 1; i < items.Count; i++)
+        {
+            double itemCY = items[i].BoundingRect.Y + items[i].BoundingRect.Height / 2.0;
+            if (Math.Abs(itemCY - rowCenterY) < rowThreshold)
+            {
+                currentRow.Add(items[i]);
+                rowCenterY = (rowCenterY * (currentRow.Count - 1) + itemCY) / currentRow.Count;
+            }
+            else
+            {
+                yRows.Add(currentRow);
+                currentRow = [items[i]];
+                rowCenterY = itemCY;
+            }
+        }
+        yRows.Add(currentRow);
+
+        foreach (var row in yRows)
+            row.Sort((a, b) => a.BoundingRect.X.CompareTo(b.BoundingRect.X));
+
+        var groups = new List<CrossValidateGroup>();
+        foreach (var row in yRows)
+        {
+            foreach (var item in row)
+            {
+                var real = new CrossValidateGroupItem { Model = modelName, Text = item.Text, Score = item.Score };
+                var place = Placeholder();
+
+                if (item.Score >= autoConfirmThreshold) real.Agreement = 3;
+                else if (item.Score >= autoFillThreshold) real.Agreement = 2;
+                else real.Agreement = 1;
+
+                var groupItems = new List<CrossValidateGroupItem> { real, place, place };
+                groups.Add(new CrossValidateGroup
+                {
+                    Items = groupItems,
+                    Agreement = real.Agreement,
+                    UnionRect = item.BoundingRect
+                });
+            }
+        }
+
+        AutoFillConfirmationLegacy(groups);
+        return groups;
+    }
+
+    // ── Weighted scoring ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Select the best text by highest total confidence, then score = average confidence of that text.
+    /// This way consensus (multiple models agreeing) wins selection, but confidence quality is valued.
+    /// weighted_score = sum_of_winning_text / count_of_models_supporting_it
+    /// </summary>
+    private static (string text, double weightedScore, int count) EvaluateBestText(
+        List<CrossValidateGroupItem> active)
+    {
+        var textData = new Dictionary<string, (double sum, int count)>();
+        foreach (var a in active)
+        {
+            var key = a.Text.Trim();
+            textData.TryGetValue(key, out var d);
+            textData[key] = (d.sum + a.Score, d.count + 1);
+        }
+
+        // Select by highest total sum (consensus favors more models)
+        var best = textData.MaxBy(kv => kv.Value.sum);
+        double avg = best.Value.sum / best.Value.count;
+        return (best.Key, avg, best.Value.count);
+    }
+
+    private static void ApplyWeightedAgreement(List<CrossValidateGroupItem> items, int modelCount)
+    {
+        var active = items.Where(i => !i.IsPlaceholder).ToList();
+        if (active.Count == 0) return;
+
+        var (bestText, weightedScore, _) = EvaluateBestText(active);
+
+        foreach (var item in active)
+        {
+            item.Agreement = item.Text.Trim() == bestText
+                ? (weightedScore >= 0.85 ? 3 : weightedScore >= 0.6 ? 2 : 1)
+                : 1;
+        }
+    }
+
+    private static void AutoFillByWeight(List<CrossValidateGroup> groups,
+        double autoConfirmThreshold, double autoFillThreshold)
+    {
+        foreach (var group in groups)
+        {
+            var active = group.Items.Where(i => !i.IsPlaceholder).ToList();
+            if (active.Count == 0) continue;
+
+            var (bestText, weightedScore, _) = EvaluateBestText(active);
+
+            if (weightedScore >= autoConfirmThreshold)
+            {
+                group.ConfirmedText = bestText;
+                group.IsConfirmed = true;
+            }
+            else if (weightedScore >= autoFillThreshold)
+            {
+                group.ConfirmedText = bestText;
+                group.IsConfirmed = false;
+            }
+        }
+    }
+
+    // ── Legacy helpers (for single model) ────────────────────────────────────
+
+    private static void AutoFillConfirmationLegacy(List<CrossValidateGroup> groups)
     {
         foreach (var group in groups)
         {
@@ -132,6 +268,8 @@ public static class CrossValidateAligner
             }
         }
     }
+
+    // ── Geometry helpers ─────────────────────────────────────────────────────
 
     private static double ComputeIoU(List<List<double>> boxA, List<List<double>> boxB)
     {
@@ -173,18 +311,7 @@ public static class CrossValidateAligner
             maxY = maxY.HasValue ? Math.Max(maxY.Value, y2) : y2;
         }
         if (!minX.HasValue) return new Rect(0, 0, 0, 0);
-        return new Rect((int)minX.Value, (int)minY!.Value, (int)(maxX!.Value - minX.Value), (int)(maxY!.Value - minY!.Value));
-    }
-
-    private static void ApplyPerItemAgreement(List<CrossValidateGroupItem> items)
-    {
-        var active = items.Where(i => !i.IsPlaceholder).ToList();
-        if (active.Count == 0) return;
-
-        foreach (var item in active)
-        {
-            int count = active.Count(a => a.Text.Trim() == item.Text.Trim());
-            item.Agreement = count >= 3 ? 3 : count == 2 ? 2 : 1;
-        }
+        return new Rect((int)minX.Value, (int)minY!.Value,
+            (int)(maxX!.Value - minX.Value), (int)(maxY!.Value - minY!.Value));
     }
 }
