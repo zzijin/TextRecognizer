@@ -120,7 +120,8 @@ cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=cpu python server_
    - 文本框获焦时全选文字，可直接输入覆盖
    - 按回车确认当前行，焦点自动跳转到下一未确认行
    - 点击 ▸ 预览原图裁剪区域，点击 ○/✓ 切换确认状态
-6. **导出/复制** — 全部确认后「导出确认结果」和「复制确认结果」可用
+6. **导出/复制/批注** — 全部确认后「导出确认结果」「复制确认结果」「导出批注图片」可用
+   - 批注图片：自动在识别框上绘制标注文字（白底红字），标注方向根据全局间距统计自动选择
 7. **环境检测** — 设置页面一键检测：本地服务检测 Python/venv/GPU/脚本/模型；云服务检测网络连接
 
 ### 推理引擎选择
@@ -218,14 +219,18 @@ cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=cpu python server_
 ## 客户端配置
 
 首次运行自动生成 `settings/appsettings.json`，支持通过设置界面修改：
+- 引擎来源（本地服务 / 百度云 API）
 - 推理引擎（ONNX CPU / ONNX DML / PaddlePaddle）
+- 百度云密钥（API Key / Secret Key）
+- 确认阈值（单模型 + 交叉验证，可分别配置）
 - 服务连接（地址、超时、重试参数）
-- OCR 服务（目录路径、venv 路径、启动行为）
+- OCR 本地服务（目录路径、venv 路径、启动行为）
 - 日志（级别、输出目标、轮转参数）
 
 ## 未来计划
 
-客户端直接支持ONNX模型，取消BS架构。
+1. **加权衰减系数**：交叉验证中引入衰减系数，共识度越高的结果组获得越小的衰减，提高确认准确性
+2. **客户端 ONNX 集成**：将 ONNX 模型推理从 Python 服务端迁移到 C# 进程内
 
 ## License
 
