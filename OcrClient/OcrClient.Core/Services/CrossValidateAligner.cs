@@ -8,8 +8,8 @@ public static class CrossValidateAligner
     private const double IouThreshold = 0.3;
 
     /// <summary>
-    /// Align multiple models into CrossValidateGroup format.
-    /// Each sub-list represents one model's recognition results.
+    /// 将多个模型的对齐结果组合为CrossValidateGroup格式。
+    /// 每个子列表代表一个模型的识别结果。
     /// </summary>
     public static List<CrossValidateGroup> Align(
         List<List<OcrItem>> modelResults,
@@ -21,7 +21,7 @@ public static class CrossValidateAligner
         if (modelCount == 0) return [];
         if (modelResults.All(m => m.Count == 0)) return [];
 
-        // Flatten with source index
+        // 带来源索引展开
         var all = new List<(int source, OcrItem item)>();
         for (int s = 0; s < modelCount; s++)
             foreach (var item in modelResults[s])
@@ -29,7 +29,7 @@ public static class CrossValidateAligner
 
         if (all.Count == 0) return [];
 
-        // Sort by Y center, then X
+        // 按Y中心排序，然后按X排序
         all.Sort((a, b) =>
         {
             var aCY = a.item.BoundingRect.Y + a.item.BoundingRect.Height / 2.0;
@@ -38,7 +38,7 @@ public static class CrossValidateAligner
             return yCmp != 0 ? yCmp : a.item.BoundingRect.X.CompareTo(b.item.BoundingRect.X);
         });
 
-        // Y-row clustering
+        // Y行聚类
         double avgHeight = all.Average(a => a.item.BoundingRect.Height);
         double rowThreshold = Math.Max(avgHeight * 0.5, 10);
 
@@ -63,7 +63,7 @@ public static class CrossValidateAligner
         }
         yRows.Add(currentRow);
 
-        // Within each row, sort by X and group overlapping items
+        // 在每一行内，按X排序并对重叠项进行分组
         var groups = new List<CrossValidateGroup>();
         foreach (var row in yRows)
         {
@@ -115,7 +115,7 @@ public static class CrossValidateAligner
     }
 
     /// <summary>
-    /// Single-model alignment with YX sort and confidence-based agreement.
+    /// 单模型对齐，按YX排序并基于置信度确定一致性。
     /// </summary>
     public static List<CrossValidateGroup> AlignSingleModel(
         List<OcrItem> items, string modelName,
@@ -184,12 +184,12 @@ public static class CrossValidateAligner
         return groups;
     }
 
-    // ── Weighted scoring ─────────────────────────────────────────────────────
+    // ── 加权评分 ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Select the best text by highest total confidence, then score = average confidence of that text.
-    /// This way consensus (multiple models agreeing) wins selection, but confidence quality is valued.
-    /// weighted_score = sum_of_winning_text / count_of_models_supporting_it
+    /// 通过最高总置信度选择最佳文本，然后得分 = 该文本的平均置信度。
+    /// 这样，共识（多个模型一致）胜出选择，但置信度质量也被考虑。
+    /// weighted_score = 获胜文本的总置信度和 / 支持该文本的模型数量
     /// </summary>
     private static (string text, double weightedScore, int count) EvaluateBestText(
         List<CrossValidateGroupItem> active)
@@ -202,7 +202,7 @@ public static class CrossValidateAligner
             textData[key] = (d.sum + a.Score, d.count + 1);
         }
 
-        // Select by highest total sum (consensus favors more models)
+        // 按最高总置信度选择（共识有利于更多模型）
         var best = textData.MaxBy(kv => kv.Value.sum);
         double avg = best.Value.sum / best.Value.count;
         return (best.Key, avg, best.Value.count);
@@ -246,7 +246,7 @@ public static class CrossValidateAligner
         }
     }
 
-    // ── Legacy helpers (for single model) ────────────────────────────────────
+    // ── 旧版辅助方法（用于单模型）────────────────────────────────────
 
     private static void AutoFillConfirmationLegacy(List<CrossValidateGroup> groups)
     {
@@ -269,7 +269,7 @@ public static class CrossValidateAligner
         }
     }
 
-    // ── Geometry helpers ─────────────────────────────────────────────────────
+    // ── 几何计算辅助方法 ────────────────────────────────────────────────
 
     private static double ComputeIoU(List<List<double>> boxA, List<List<double>> boxB)
     {

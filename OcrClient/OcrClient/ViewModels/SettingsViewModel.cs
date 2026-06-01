@@ -21,7 +21,7 @@ public partial class SettingsViewModel : ViewModel
     [ObservableProperty]
     private string _baseUrl = "http://localhost:8080";
 
-    // ── Engine source ────────────────────────────────────────────────────────
+    // ── 引擎来源 ──────────────────────────────────────────────────────────────
 
     public record SourceOption(string Value, string Label);
 
@@ -44,7 +44,7 @@ public partial class SettingsViewModel : ViewModel
         OnPropertyChanged(nameof(IsBaiduCloudSelected));
     }
 
-    // ── Local engine ─────────────────────────────────────────────────────────
+    // ── 本地引擎 ──────────────────────────────────────────────────────────────
 
     public record EngineOption(string Value, string Label);
     public List<EngineOption> EngineOptions { get; } =
@@ -57,7 +57,7 @@ public partial class SettingsViewModel : ViewModel
     [ObservableProperty]
     private EngineOption _selectedEngineOption = null!;
 
-    // ── Baidu Cloud ──────────────────────────────────────────────────────────
+    // ── 百度云 ────────────────────────────────────────────────────────────────
 
     [ObservableProperty]
     private string _baiduClientId = "";
@@ -65,7 +65,7 @@ public partial class SettingsViewModel : ViewModel
     [ObservableProperty]
     private string _baiduClientSecret = "";
 
-    // ── Thresholds ───────────────────────────────────────────────────────────
+    // ── 阈值设置 ──────────────────────────────────────────────────────────────
 
     [ObservableProperty]
     private double _singleModelAutoConfirmThreshold = 0.99;
@@ -109,7 +109,7 @@ public partial class SettingsViewModel : ViewModel
     [ObservableProperty]
     private bool _capturePythonOutput = true;
 
-    // Logging
+    // 日志设置
     [ObservableProperty]
     private string _logLevel = "Information";
 
@@ -204,7 +204,7 @@ public partial class SettingsViewModel : ViewModel
         c.Logging.RollingSizeKB = RollingSizeKB;
 
         _configService.Save(c);
-        _logger.LogInformation("Settings saved");
+        _logger.LogInformation("设置已保存");
         StatusMessage = "设置已保存，重启客户端生效";
     }
 
@@ -228,7 +228,7 @@ public partial class SettingsViewModel : ViewModel
         var c = new AppConfig();
         _configService.Save(c);
         LoadFromConfig();
-        _logger.LogInformation("Settings reset to defaults");
+        _logger.LogInformation("设置已恢复默认");
         StatusMessage = "已恢复默认设置";
     }
 
@@ -263,7 +263,7 @@ public partial class SettingsViewModel : ViewModel
             EnvCheckResults.Add(new("Python 环境", true, pythonPath));
         }
 
-        // 2. venv + pip packages
+        // 2. 虚拟环境 + pip 包
         if (!File.Exists(venvPython))
         {
             EnvCheckResults.Add(new("venv 环境", false, $"虚拟环境不存在: {venvDir}"));
@@ -286,7 +286,7 @@ public partial class SettingsViewModel : ViewModel
         {
             EnvCheckResults.Add(new("venv 环境", true, venvDir));
 
-            // verify required packages
+            // 验证所需包
             var requiredPackages = isPaddle
                 ? new[] { "paddlepaddle-gpu", "paddleocr", "fastapi", "uvicorn" }
                 : engine == "onnx_dml"
@@ -312,7 +312,7 @@ public partial class SettingsViewModel : ViewModel
             }
         }
 
-        // 3. Server script
+        // 3. 服务脚本
         if (isPaddle)
         {
             var sp = Path.Combine(serverDir, "server.py");
@@ -326,7 +326,7 @@ public partial class SettingsViewModel : ViewModel
             EnvCheckResults.Add(new("引擎模块 onnx_ocr.py", File.Exists(ocrSp), File.Exists(ocrSp) ? ocrSp : "未找到"));
         }
 
-        // 4. Models
+        // 4. 模型文件
         if (isPaddle)
         {
             var modelsDir = Path.Combine(serverDir, "models", "official_models");
@@ -343,7 +343,7 @@ public partial class SettingsViewModel : ViewModel
             EnvCheckResults.Add(new("ONNX 模型", missing.Count == 0,
                 missing.Count == 0 ? $"{requiredOnnx.Length} 个就绪" : $"缺少: {string.Join(", ", missing)}"));
 
-            // character dicts (needed for CTC decode)
+            // 字符字典（CTC 解码需要）
             var dictDir = Path.Combine(serverDir, "models", "official_models");
             var dictModels = new[] { "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec" };
             foreach (var dm in dictModels)
@@ -353,7 +353,7 @@ public partial class SettingsViewModel : ViewModel
             }
         }
 
-        // 5. GPU / Internet check
+        // 5. GPU / 网络检测
         if (isOnnx || isPaddle)
         {
             bool hasD3d = false;

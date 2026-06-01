@@ -16,7 +16,7 @@ public class OcrApiClient
         _http.BaseAddress = new Uri(config.Server.BaseUrl);
     }
 
-    /// <summary>Send base64 image to /ocr/cross_validate and return combined result.</summary>
+    /// <summary>将base64编码的图片发送到/ocr/cross_validate并返回组合结果。</summary>
     public async Task<CrossValidateResult> CrossValidateAsync(string imageBase64, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/ocr/cross_validate", new { image = imageBase64 }, ct);
@@ -24,7 +24,7 @@ public class OcrApiClient
         return (await response.Content.ReadFromJsonAsync<CrossValidateResult>(cancellationToken: ct))!;
     }
 
-    /// <summary>Send base64 image to /ocr/server_rec only.</summary>
+    /// <summary>将base64编码的图片发送到/ocr/server_rec（仅服务端模型）。</summary>
     public async Task<OcrSingleResult> RecognizeServerAsync(string imageBase64, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/ocr/server_rec", new { image = imageBase64 }, ct);
@@ -32,7 +32,7 @@ public class OcrApiClient
         return (await response.Content.ReadFromJsonAsync<OcrSingleResult>(cancellationToken: ct))!;
     }
 
-    /// <summary>Send base64 image to /ocr/mobile_rec only.</summary>
+    /// <summary>将base64编码的图片发送到/ocr/mobile_rec（仅移动端模型）。</summary>
     public async Task<OcrSingleResult> RecognizeMobileAsync(string imageBase64, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/ocr/mobile_rec", new { image = imageBase64 }, ct);
@@ -40,7 +40,7 @@ public class OcrApiClient
         return (await response.Content.ReadFromJsonAsync<OcrSingleResult>(cancellationToken: ct))!;
     }
 
-    /// <summary>Send base64 image to /ocr/en_mobile_rec only.</summary>
+    /// <summary>将base64编码的图片发送到/ocr/en_mobile_rec（仅英文移动端模型）。</summary>
     public async Task<OcrSingleResult> RecognizeEnMobileAsync(string imageBase64, CancellationToken ct = default)
     {
         var response = await _http.PostAsJsonAsync("/ocr/en_mobile_rec", new { image = imageBase64 }, ct);
@@ -48,7 +48,7 @@ public class OcrApiClient
         return (await response.Content.ReadFromJsonAsync<OcrSingleResult>(cancellationToken: ct))!;
     }
 
-    /// <summary>Check if the OCR service is reachable.</summary>
+    /// <summary>检查OCR服务是否可达。</summary>
     public async Task<bool> HealthCheckAsync(CancellationToken ct = default)
     {
         try

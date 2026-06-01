@@ -126,13 +126,13 @@ public partial class HomeViewModel : ViewModel
 
             if (SelectedMode == RecognitionMode.BaiduCrossValidate)
             {
-                // Baidu dual model cross-validate
+                // 百度双模型交叉验证
                 modelResults = [r.BaiduApiRec?.Items ?? [], r.BaiduApiGeneralRec?.Items ?? []];
                 modelNames = ["百度云(高精度)", "百度云(标准)"];
             }
             else
             {
-                // Local 3-model cross-validate
+                // 本地三模型交叉验证
                 modelResults = [r.ServerRec?.Items ?? [], r.MobileRec?.Items ?? [], r.EnMobileRec?.Items ?? []];
                 modelNames = ["PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec"];
             }
@@ -144,7 +144,7 @@ public partial class HomeViewModel : ViewModel
         }
         else
         {
-            // Single model: convert to CrossValidateGroup with confidence-based agreement
+            // 单模型：转换为基于置信度一致的 CrossValidateGroup
             var items = SelectedMode switch
             {
                 RecognitionMode.ServerRec => r.ServerRec?.Items,
@@ -178,7 +178,7 @@ public partial class HomeViewModel : ViewModel
                 {
                     var bmp = new BitmapImage(new Uri(imagePath));
                     if (bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
-                        scale = 1.0;  // server returns boxes in original image coords, no scaling needed
+                        scale = 1.0;  // 服务端返回的文本框在原始图像坐标系中，无需缩放
                 }
                 catch { scale = 1.0; }
             }
@@ -220,7 +220,7 @@ public partial class HomeViewModel : ViewModel
     public bool AllConfirmed =>
         CrossValidateGroups is { Count: > 0 } g && g.All(x => x.IsConfirmed);
 
-    /// <summary>Called by code-behind (e.g. Enter key) to refresh AllConfirmed binding.</summary>
+    /// <summary>由代码隐藏调用（如回车键），刷新 AllConfirmed 绑定。</summary>
     public void NotifyAllConfirmed() => OnPropertyChanged(nameof(AllConfirmed));
 
     public bool CanStartRecognition => (IsBaiduCloud || _serverState.IsReady) && !IsBusy && Images.Count > 0;
@@ -228,7 +228,7 @@ public partial class HomeViewModel : ViewModel
     [RelayCommand]
     private void RestartServer()
     {
-        _serverState.StatusText = "Restarting...";
+        _serverState.StatusText = "正在重启...";
         _serverState.IsReady = false;
         _serverState.IsStarting = true;
         _serverState.HasError = false;
@@ -250,7 +250,7 @@ public partial class HomeViewModel : ViewModel
         _appHost = appHost;
         _configService = configService;
 
-        // Set default mode for Baidu Cloud
+        // 为百度云设置默认模式
         if (IsBaiduCloud)
             _selectedMode = RecognitionMode.BaiduCrossValidate;
 
@@ -334,7 +334,7 @@ public partial class HomeViewModel : ViewModel
     {
         if (Images.Count == 0 || !CanStartRecognition) return;
 
-        _logger.LogInformation("Recognition started: {Count} images, mode={Mode}", Images.Count, SelectedMode);
+        _logger.LogInformation("识别开始：{Count} 张图片，模式={Mode}", Images.Count, SelectedMode);
 
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
@@ -364,7 +364,7 @@ public partial class HomeViewModel : ViewModel
             {
                 token.ThrowIfCancellationRequested();
 
-                // Skip if already recognized in this mode
+                // 如果已在该模式下识别则跳过
                 if (item.CompletedModes.Contains(SelectedMode))
                 {
                     skipped++;
@@ -372,7 +372,7 @@ public partial class HomeViewModel : ViewModel
                     continue;
                 }
 
-                _logger.LogInformation("Processing: {FileName}", item.FileName);
+                _logger.LogInformation("处理中：{FileName}", item.FileName);
                 item.Status = ImageFileStatus.Processing;
                 item.ErrorMessage = null;
 
@@ -437,7 +437,7 @@ public partial class HomeViewModel : ViewModel
                             break;
                     }
                     sw.Stop();
-                    _logger.LogInformation("Done: {FileName} in {ElapsedMs}ms, {Count} items",
+                    _logger.LogInformation("完成：{FileName} 耗时 {ElapsedMs}ms，{Count} 个结果",
                         item.FileName, sw.ElapsedMilliseconds,
                         item.Result?.ServerRec?.Count ?? item.Result?.MobileRec?.Count ?? item.Result?.EnMobileRec?.Count ?? item.Result?.BaiduApiRec?.Count ?? 0);
 
@@ -449,7 +449,7 @@ public partial class HomeViewModel : ViewModel
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogError(ex, "Failed: {FileName}", item.FileName);
+                    _logger.LogError(ex, "失败：{FileName}", item.FileName);
                     item.Status = ImageFileStatus.Error;
                     item.ErrorMessage = ex.Message;
                     item.Result = null;
@@ -460,7 +460,7 @@ public partial class HomeViewModel : ViewModel
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Recognition cancelled");
+            _logger.LogInformation("识别已取消");
         }
         finally
         {
@@ -470,7 +470,7 @@ public partial class HomeViewModel : ViewModel
             StatusText = skipped > 0
                 ? $"完成: {CompletedCount}/{TotalCount} (跳过 {skipped} 张已识别)"
                 : $"完成: {CompletedCount}/{TotalCount}";
-            _logger.LogInformation("Recognition finished: {Completed}/{Total} (skipped {Skipped})", CompletedCount, TotalCount, skipped);
+            _logger.LogInformation("识别完成：{Completed}/{Total}（跳过 {Skipped} 张）", CompletedCount, TotalCount, skipped);
         }
     }
 
@@ -571,13 +571,13 @@ public partial class HomeViewModel : ViewModel
 
             var boxColor = new Scalar(0, 200, 0);
 
-            // Collect all bounding rects for adjacency calculation
+            // 收集所有包围矩形用于邻接计算
             var allRects = confirmed.Select(g => (OpenCvSharp.Rect)g.ScaledUnionRect).ToList();
 
-            // Pick one global label direction based on average gaps across all boxes
+            // 根据所有框的平均间距选择一个全局标签方向
             string globalDir = PickGlobalLabelDirection(allRects);
 
-            // Pass 1: draw all bounding boxes
+            // 第1遍：绘制所有包围框
             foreach (var group in confirmed)
             {
                 var rect = (OpenCvSharp.Rect)group.ScaledUnionRect;
@@ -590,7 +590,7 @@ public partial class HomeViewModel : ViewModel
                 Cv2.Rectangle(src, new OpenCvSharp.Point(x, y), new OpenCvSharp.Point(x + w, y + h), boxColor, 2);
             }
 
-            // Pass 2: draw all labels on top
+            // 第2遍：绘制所有标签文字
             foreach (var group in confirmed)
             {
                 var rect = (OpenCvSharp.Rect)group.ScaledUnionRect;
@@ -605,11 +605,11 @@ public partial class HomeViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Failed to export annotated image: {Error}", ex.Message);
+            _logger.LogWarning("导出批注图片失败：{Error}", ex.Message);
         }
     }
 
-    /// <summary>Pick one global direction (left/right/top/bottom) with the largest average gap across all boxes.</summary>
+    /// <summary>选择所有文本框中平均间距最大的全局标签方向（左/右/上/下）。</summary>
     private static string PickGlobalLabelDirection(List<OpenCvSharp.Rect> rects)
     {
         if (rects.Count == 0) return "right";
@@ -621,7 +621,7 @@ public partial class HomeViewModel : ViewModel
         {
             var r = rects[i];
 
-            // Find nearest other box in each direction
+            // 查找每个方向上的最近邻框
             double nearestLeft = double.MaxValue, nearestRight = double.MaxValue;
             double nearestTop = double.MaxValue, nearestBottom = double.MaxValue;
 
@@ -630,25 +630,25 @@ public partial class HomeViewModel : ViewModel
                 if (i == j) continue;
                 var o = rects[j];
 
-                // Left: other box is to the left, not overlapping vertically too much
+                // 左方：其他框在当前框左侧，垂直方向不重叠过多
                 if (o.Right <= r.Left && !(o.Bottom <= r.Top || o.Top >= r.Bottom))
                 {
                     double d = r.Left - o.Right;
                     if (d < nearestLeft) nearestLeft = d;
                 }
-                // Right
+                // 右方
                 if (o.Left >= r.Right && !(o.Bottom <= r.Top || o.Top >= r.Bottom))
                 {
                     double d = o.Left - r.Right;
                     if (d < nearestRight) nearestRight = d;
                 }
-                // Top
+                // 上方
                 if (o.Bottom <= r.Top && !(o.Right <= r.Left || o.Left >= r.Right))
                 {
                     double d = r.Top - o.Bottom;
                     if (d < nearestTop) nearestTop = d;
                 }
-                // Bottom
+                // 下方
                 if (o.Top >= r.Bottom && !(o.Right <= r.Left || o.Left >= r.Right))
                 {
                     double d = o.Top - r.Bottom;
@@ -667,14 +667,14 @@ public partial class HomeViewModel : ViewModel
         double topAvg = topCount > 0 ? topSum / topCount : 0;
         double bottomAvg = bottomCount > 0 ? bottomSum / bottomCount : 0;
 
-        // Priority: left > right > top > bottom on tie
+        // 优先级：平局时左 > 右 > 上 > 下
         if (leftAvg >= rightAvg && leftAvg >= topAvg && leftAvg >= bottomAvg) return "left";
         if (rightAvg >= topAvg && rightAvg >= bottomAvg) return "right";
         if (topAvg >= bottomAvg) return "top";
         return "bottom";
     }
 
-    /// <summary>Get label anchor position for a given direction, tight to the box edge.</summary>
+    /// <summary>获取指定方向的标签锚点位置，紧贴文本框边缘。</summary>
     private static (int x, int y) GetLabelPosition(OpenCvSharp.Rect r, string dir, int imgW, int imgH)
     {
         int x = r.X, y = r.Y;
@@ -688,7 +688,7 @@ public partial class HomeViewModel : ViewModel
         return (x, y);
     }
 
-    /// <summary>Get the gap to the nearest neighbor box in the given direction.</summary>
+    /// <summary>获取指定方向上到最近邻文本框的间距。</summary>
     private static double GetGapInDirection(List<OpenCvSharp.Rect> rects, OpenCvSharp.Rect r, string dir)
     {
         double nearest = double.MaxValue;
@@ -730,11 +730,11 @@ public partial class HomeViewModel : ViewModel
         tg.Clear(System.Drawing.Color.Transparent);
         tg.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
 
-        // Semi-transparent white background
+        // 半透明白色背景
         using var bgBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(180, 255, 255, 255));
         tg.FillRectangle(bgBrush, 0, 0, tw, th);
 
-        // Red text
+        // 红色文字
         using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Red);
         tg.DrawString(text, font, brush, 2, 1);
 
@@ -754,7 +754,7 @@ public partial class HomeViewModel : ViewModel
 
             using var roi = new Mat(mat, new OpenCvSharp.Rect(x, y, copyW, copyH));
             using var overlayRoi = new Mat(overlayBgr, new OpenCvSharp.Rect(0, 0, copyW, copyH));
-            // Alpha blend: overlay where non-white
+            // Alpha 混合：覆盖非白色区域
             using var mask = new Mat();
             Cv2.CvtColor(overlayRoi, mask, ColorConversionCodes.BGR2GRAY);
             Cv2.Threshold(mask, mask, 250, 255, ThresholdTypes.BinaryInv);
@@ -777,7 +777,7 @@ public partial class HomeViewModel : ViewModel
             case RecognitionMode.EnMobileRec: merged.EnMobileRec = result; break;
             case RecognitionMode.BaiduApi: merged.BaiduApiRec = result; break;
             case RecognitionMode.BaiduApiGeneral: merged.BaiduApiGeneralRec = result; break;
-            case RecognitionMode.BaiduCrossValidate: break; // handled directly in recognition switch
+            case RecognitionMode.BaiduCrossValidate: break; // 在识别 switch 中直接处理
         }
         return merged;
     }
@@ -809,7 +809,7 @@ public partial class HomeViewModel : ViewModel
         {
             if (items is null) return;
             foreach (var oi in items)
-                _logger.LogTrace("[{Model}] \"{Text}\" score={Score} rect={Rect}", model, oi.Text, oi.Score, oi.BoundingRect);
+                _logger.LogTrace("[{Model}] \"{Text}\" 置信度={Score} 区域={Rect}", model, oi.Text, oi.Score, oi.BoundingRect);
         }
 
         LogItems("server_rec", result.ServerRec?.Items);

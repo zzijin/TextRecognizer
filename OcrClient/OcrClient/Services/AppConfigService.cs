@@ -31,20 +31,20 @@ public class AppConfigService
                 var config = JsonSerializer.Deserialize<AppConfig>(json);
                 if (config is not null)
                 {
-                    _logger.LogInformation("Config loaded from {Path}", _configPath);
+                    _logger.LogInformation("配置已从 {Path} 加载", _configPath);
                     return config;
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load config, using defaults");
+            _logger.LogWarning(ex, "加载配置失败，使用默认值");
         }
 
-        // Create default config and save it
+        // 创建默认配置并保存
         var defaultConfig = new AppConfig();
         Save(defaultConfig);
-        _logger.LogInformation("Default config created at {Path}", _configPath);
+        _logger.LogInformation("默认配置已创建于 {Path}", _configPath);
         return defaultConfig;
     }
 
@@ -58,7 +58,7 @@ public class AppConfigService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save config to {Path}", _configPath);
+            _logger.LogWarning(ex, "保存配置到 {Path} 失败", _configPath);
         }
     }
 }

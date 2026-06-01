@@ -22,7 +22,7 @@ public partial class App : Application
 
     private static void ConfigureServices(IServiceCollection services)
     {
-        // Configuration — load first so logging can use it
+        // 配置 — 先加载以便日志系统可以使用
         var configService = new AppConfigService(Microsoft.Extensions.Logging.Abstractions.NullLogger<AppConfigService>.Instance);
         services.AddSingleton(configService);
         services.AddSingleton(configService.Config);
@@ -32,19 +32,19 @@ public partial class App : Application
         services.AddSingleton<ApplicationHostService>();
         services.AddHostedService(sp => sp.GetRequiredService<ApplicationHostService>());
 
-        // Navigation
+        // 导航
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<INavigationWindow, MainWindow>();
         services.AddNavigationViewPageProvider();
 
-        // Windows & Pages
+        // 窗口和页面
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<HomePage>();
         services.AddSingleton<HomeViewModel>();
         services.AddSingleton<SettingsPage>();
         services.AddSingleton<SettingsViewModel>();
 
-        // Core services
+        // 核心服务
         services.AddSingleton<Services.ServerProcessState>();
         services.AddHttpClient<Core.Services.OcrApiClient>((sp, client) =>
         {

@@ -38,12 +38,12 @@ public partial class HomePage : INavigableView<HomeViewModel>
         if (sender is not System.Windows.Controls.TextBox tb
             || tb.DataContext is not CrossValidateGroup group) return;
 
-        // Confirm current item
+        // 确认当前项目
         group.IsConfirmed = true;
         ViewModel.NotifyAllConfirmed();
         e.Handled = true;
 
-        // Find parent ItemsControl and jump to next unconfirmed item
+        // 查找父级 ItemsControl 并跳转到下一个未确认的项目
         var ic = FindParent<System.Windows.Controls.ItemsControl>(tb);
         if (ic is null) return;
 
@@ -51,10 +51,10 @@ public partial class HomePage : INavigableView<HomeViewModel>
         int currentIdx = items.IndexOf(group);
         if (currentIdx < 0) return;
 
-        // Remember current layout position relative to ItemsControl content
+        // 记录相对于 ItemsControl 内容的当前布局位置
         double prevY = tb.TranslatePoint(new System.Windows.Point(0, 0), ic).Y;
 
-        // Find next unconfirmed item after current
+        // 在当前项之后查找下一个未确认的项目
         for (int i = currentIdx + 1; i < items.Count; i++)
         {
             if (items[i].NeedsConfirmation)

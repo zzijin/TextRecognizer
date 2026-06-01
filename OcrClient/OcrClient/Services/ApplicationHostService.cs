@@ -30,7 +30,7 @@ public class ApplicationHostService : IHostedService
     {
         if (_configService.Config.Server.EngineSource == "baidu_cloud")
         {
-            _logger.LogInformation("Baidu Cloud mode, skipping local server start");
+            _logger.LogInformation("百度云模式，跳过本地服务启动");
             _serverState.StatusText = "云端服务就绪";
             _serverState.IsReady = true;
             _serverState.IsStarting = false;
@@ -54,14 +54,14 @@ public class ApplicationHostService : IHostedService
     public void Restart()
     {
         var port = GetPortFromUrl(_configService.Config.Server.BaseUrl);
-        _logger.LogInformation("Manual restart requested (port {Port})", port);
+        _logger.LogInformation("手动请求重启（端口 {Port}）", port);
         _serverCts?.Cancel();
         KillPythonProcess();
         KillPort(port);
         _ = Task.Run(() => StartPythonServerAsync());
     }
 
-    // ── engine → (script, env vars) ──────────────────────────────────────────
+    // ── 引擎 → (脚本, 环境变量) ──────────────────────────────────────────
 
     private static (string script, Dictionary<string, string> env) GetEngineConfig(string engine, int port)
     {
@@ -88,7 +88,7 @@ public class ApplicationHostService : IHostedService
         catch { return 8081; }
     }
 
-    // ── health monitor ───────────────────────────────────────────────────────
+    // ── 健康监控 ───────────────────────────────────────────────────────
 
     private async Task StartHealthMonitorAsync(CancellationToken ct)
     {
@@ -131,7 +131,7 @@ public class ApplicationHostService : IHostedService
         }
     }
 
-    // ── server process management ────────────────────────────────────────────
+    // ── 服务进程管理 ────────────────────────────────────────────
 
     private async Task StartPythonServerAsync()
     {
@@ -140,7 +140,7 @@ public class ApplicationHostService : IHostedService
         var port = GetPortFromUrl(cfg.Server.BaseUrl);
         var (script, envVars) = GetEngineConfig(engine, port);
 
-        _logger.LogInformation("Starting {Script} (engine={Engine})", script, engine);
+        _logger.LogInformation("正在启动 {Script}（引擎={Engine}）", script, engine);
         _serverState.StatusText = "Starting OCR service...";
         _serverState.IsStarting = true;
 
@@ -150,14 +150,14 @@ public class ApplicationHostService : IHostedService
             : Path.Combine(serverDir, cfg.OcrService.VenvPath);
         var pythonExe = Path.Combine(venvDir, "Scripts", "python.exe");
         var serverScript = Path.Combine(serverDir, script);
-        _logger.LogInformation("ServerDir={ServerDir}, Python={Python}, Script={Script}", serverDir, pythonExe, serverScript);
+        _logger.LogInformation("服务目录={ServerDir}，Python={Python}，脚本={Script}", serverDir, pythonExe, serverScript);
 
         if (cfg.OcrService.KillExistingOnStartup)
             KillPort(port);
 
         if (!File.Exists(pythonExe) || !File.Exists(serverScript))
         {
-            _logger.LogError("Python or server script not found: {Python}, {Script}", pythonExe, serverScript);
+            _logger.LogError("找不到 Python 或服务脚本：{Python}，{Script}", pythonExe, serverScript);
             _serverState.StatusText = "OCR service not found";
             _serverState.IsStarting = false;
             _serverState.HasError = true;
@@ -187,29 +187,29 @@ public class ApplicationHostService : IHostedService
 
         if (cfg.OcrService.CapturePythonOutput)
         {
-            _pythonProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) _logger.LogInformation("OCR | {Data}", e.Data); };
-            _pythonProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) _logger.LogWarning("OCR | {Data}", e.Data); };
+            _pythonProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) _logger.LogInformation("OCR输出 | {Data}", e.Data); };
+            _pythonProcess.ErrorDataReceived += (_, e) => { if (e.Data is not null) _logger.LogWarning("OCR错误 | {Data}", e.Data); };
         }
 
-        _logger.LogInformation("Starting: {Python} {Args} [dir={Dir}]",
+        _logger.LogInformation("启动中：{Python} {Args} [目录={Dir}]",
             pythonExe, _pythonProcess.StartInfo.Arguments, serverDir);
         _pythonProcess.Start();
         _pythonProcess.BeginOutputReadLine();
         _pythonProcess.BeginErrorReadLine();
-        _logger.LogInformation("Python PID={Pid}, healthUrl={HealthUrl}", _pythonProcess.Id, $"{cfg.Server.BaseUrl}/health");
+        _logger.LogInformation("Python 进程ID={Pid}，健康检查地址={HealthUrl}", _pythonProcess.Id, $"{cfg.Server.BaseUrl}/health");
 
-        // Give the process a moment to fail fast, then check
+        // 给进程一点时间以快速失败，然后检查
         await Task.Delay(2000);
         if (_pythonProcess.HasExited)
         {
-            _logger.LogError("Python process exited immediately with code {Code}", _pythonProcess.ExitCode);
+            _logger.LogError("Python 进程立即退出，退出码 {Code}", _pythonProcess.ExitCode);
             _serverState.StatusText = "OCR service crashed on startup";
             _serverState.IsStarting = false;
             _serverState.HasError = true;
             return;
         }
 
-        // Poll health
+        // 轮询健康状态
         var sc = cfg.Server;
         var healthUrl = $"{sc.BaseUrl}/health";
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(sc.HealthTimeoutSeconds) };
@@ -222,7 +222,7 @@ public class ApplicationHostService : IHostedService
                 var resp = await http.GetAsync(healthUrl, ct);
                 if (resp.IsSuccessStatusCode)
                 {
-                    _logger.LogInformation("OCR service healthy after {Attempt} attempts", i);
+                    _logger.LogInformation("OCR 服务在第 {Attempt} 次尝试后正常", i);
                     _serverState.StatusText = "OCR service ready";
                     _serverState.IsReady = true;
                     _serverState.IsStarting = false;
@@ -238,19 +238,19 @@ public class ApplicationHostService : IHostedService
 
             _serverState.StatusText = $"Waiting for OCR service... ({i}/{sc.StartupMaxAttempts})";
             if (i % 5 == 0)
-                _logger.LogWarning("Health check attempt {I}/{Max}: {Error}", i, sc.StartupMaxAttempts, lastError);
+                _logger.LogWarning("健康检查尝试 {I}/{Max}：{Error}", i, sc.StartupMaxAttempts, lastError);
             try { await Task.Delay(sc.StartupPollIntervalMs, ct); } catch { return; }
         }
 
-        _logger.LogError("OCR service timed out. Last error: {Error}", lastError);
+        _logger.LogError("OCR 服务超时。最后错误：{Error}", lastError);
 
-        _logger.LogError("OCR service timed out after {Attempts} attempts", sc.StartupMaxAttempts);
+        _logger.LogError("OCR 服务在 {Attempts} 次尝试后超时", sc.StartupMaxAttempts);
         _serverState.StatusText = "OCR service timeout";
         _serverState.IsStarting = false;
         _serverState.HasError = true;
     }
 
-    // ── process cleanup ──────────────────────────────────────────────────────
+    // ── 进程清理 ──────────────────────────────────────────────────────
 
     private void KillPythonProcess()
     {
@@ -304,18 +304,18 @@ public class ApplicationHostService : IHostedService
         return 0;
     }
 
-    // ── UI helpers ───────────────────────────────────────────────────────────
+    // ── UI 辅助 ───────────────────────────────────────────────────────────
 
     private static string ResolveServiceDirectory(string configured)
     {
         if (Path.IsPathRooted(configured)) return configured;
 
-        // Try relative to app base (works for published single-file)
+        // 尝试相对于应用程序基目录（适用于发布后的单文件模式）
         var appDir = AppContext.BaseDirectory;
         var candidate = Path.GetFullPath(Path.Combine(appDir, configured));
         if (Directory.Exists(candidate)) return candidate;
 
-        // Walk up from app base to find ocr_service (development builds)
+        // 从应用程序基目录向上遍历以查找 ocr_service（开发构建）
         var dir = appDir;
         for (int i = 0; i < 6; i++)
         {
@@ -325,7 +325,7 @@ public class ApplicationHostService : IHostedService
             if (Directory.Exists(candidate)) return candidate;
         }
 
-        // Fallback to the original path
+        // 回退到原始路径
         return Path.GetFullPath(Path.Combine(appDir, configured));
     }
 

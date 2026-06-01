@@ -17,7 +17,7 @@ public class OcrItem
     [JsonPropertyName("box")]
     public List<List<double>>? Box { get; set; }
 
-    /// <summary>Axis-aligned bounding rect derived from the quadrilateral Box.</summary>
+    /// <summary>从四边形Box导出的轴对齐边界矩形。</summary>
     [JsonIgnore]
     public Rect BoundingRect => Box is null || Box.Count == 0
         ? new Rect(0, 0, 0, 0)
@@ -93,7 +93,7 @@ public class CrossValidateGroupItem
     public string Text { get; set; } = "";
     public double Score { get; set; }
     public bool IsPlaceholder { get; set; }
-    public int Agreement { get; set; }  // 3=all agree, 2=two agree, 1=unique
+    public int Agreement { get; set; }  // 3=全部一致, 2=两个一致, 1=唯一
 }
 
 public class CrossValidateGroup : INotifyPropertyChanged
@@ -103,8 +103,8 @@ public class CrossValidateGroup : INotifyPropertyChanged
 
     public List<CrossValidateGroupItem> Items { get; set; } = [];
     public int Agreement { get; set; }
-    public Rect UnionRect { get; set; }          // in server-resized coordinates
-    public double ImageScale { get; set; } = 1.0; // server resize factor (1024 / max(w,h))
+    public Rect UnionRect { get; set; }          // 在服务器调整大小后的坐标系中
+    public double ImageScale { get; set; } = 1.0; // 服务器缩放因子（1024 / max(w,h)）
     [JsonIgnore]
     public Rect ScaledUnionRect => new(
         (int)(UnionRect.X / ImageScale),

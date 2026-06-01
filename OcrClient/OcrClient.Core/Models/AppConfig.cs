@@ -16,109 +16,109 @@ public class AppConfig
 
 public class ServerConfig
 {
-    /// <summary>Base URL of the OCR service. All engines share port 8081.</summary>
+    /// <summary>OCR服务的基础URL。所有引擎共享端口8080。</summary>
     [JsonPropertyName("baseUrl")]
     public string BaseUrl { get; set; } = "http://localhost:8080";
 
-    /// <summary>Engine source: "local_service", "baidu_cloud", or "onnx_csharp" (placeholder).</summary>
+    /// <summary>引擎来源："local_service"（本地服务）、"baidu_cloud"（百度云）或"onnx_csharp"（占位符）。</summary>
     [JsonPropertyName("engineSource")]
     public string EngineSource { get; set; } = "local_service";
 
-    /// <summary>Inference engine for local service: "onnx_cpu", "onnx_dml", or "paddle". Takes effect after restart.</summary>
+    /// <summary>本地服务的推理引擎："onnx_cpu"、"onnx_dml"或"paddle"。重启后生效。</summary>
     [JsonPropertyName("engine")]
     public string Engine { get; set; } = "onnx_cpu";
 
-    /// <summary>Baidu Cloud API Key (client_id).</summary>
+    /// <summary>百度云API密钥（client_id）。</summary>
     [JsonPropertyName("baiduClientId")]
     public string BaiduClientId { get; set; } = "";
 
-    /// <summary>Baidu Cloud Secret Key (client_secret).</summary>
+    /// <summary>百度云秘密密钥（client_secret）。</summary>
     [JsonPropertyName("baiduClientSecret")]
     public string BaiduClientSecret { get; set; } = "";
 
-    /// <summary>Single model: auto-confirm when confidence >= this value (0-1).</summary>
+    /// <summary>单模型：置信度 >= 此值时自动确认（0-1）。</summary>
     [JsonPropertyName("singleModelAutoConfirmThreshold")]
     public double SingleModelAutoConfirmThreshold { get; set; } = 0.99;
 
-    /// <summary>Single model: auto-fill (but not confirm) when confidence >= this value (0-1).</summary>
+    /// <summary>单模型：置信度 >= 此值时自动填写（但不确认）（0-1）。</summary>
     [JsonPropertyName("singleModelAutoFillThreshold")]
     public double SingleModelAutoFillThreshold { get; set; } = 0.95;
 
-    /// <summary>Cross-validate: auto-confirm when weighted_score >= this value (0-1).</summary>
+    /// <summary>交叉验证：加权得分 >= 此值时自动确认（0-1）。</summary>
     [JsonPropertyName("crossValidateAutoConfirmThreshold")]
     public double CrossValidateAutoConfirmThreshold { get; set; } = 0.85;
 
-    /// <summary>Cross-validate: auto-fill (but not confirm) when weighted_score >= this value (0-1).</summary>
+    /// <summary>交叉验证：加权得分 >= 此值时自动填写（但不确认）（0-1）。</summary>
     [JsonPropertyName("crossValidateAutoFillThreshold")]
     public double CrossValidateAutoFillThreshold { get; set; } = 0.6;
 
-    /// <summary>Max number of health-check poll attempts during startup.</summary>
+    /// <summary>启动时健康检查轮询的最大尝试次数。</summary>
     [JsonPropertyName("startupMaxAttempts")]
     public int StartupMaxAttempts { get; set; } = 120;
 
-    /// <summary>Interval (ms) between health-check polls.</summary>
+    /// <summary>健康检查轮询间隔（毫秒）。</summary>
     [JsonPropertyName("startupPollIntervalMs")]
     public int StartupPollIntervalMs { get; set; } = 1000;
 
-    /// <summary>Health-check request timeout in seconds.</summary>
+    /// <summary>健康检查请求超时时间（秒）。</summary>
     [JsonPropertyName("healthTimeoutSeconds")]
     public int HealthTimeoutSeconds { get; set; } = 10;
 
-    /// <summary>Interval (ms) between health-monitor polls once running.</summary>
+    /// <summary>运行后健康监控轮询间隔（毫秒）。</summary>
     [JsonPropertyName("healthMonitorIntervalMs")]
     public int HealthMonitorIntervalMs { get; set; } = 1000;
 
-    /// <summary>Consecutive health-check failures before reporting disconnected.</summary>
+    /// <summary>在报告断开连接之前的连续健康检查失败次数。</summary>
     [JsonPropertyName("healthMaxFailures")]
     public int HealthMaxFailures { get; set; } = 3;
 
-    /// <summary>OCR API request timeout in seconds.</summary>
+    /// <summary>OCR API请求超时时间（秒）。</summary>
     [JsonPropertyName("requestTimeoutSeconds")]
     public int RequestTimeoutSeconds { get; set; } = 900;
 }
 
 public class OcrServiceConfig
 {
-    /// <summary>Whether to kill existing process on the port before starting.</summary>
+    /// <summary>启动前是否终止端口上的现有进程。</summary>
     [JsonPropertyName("killExistingOnStartup")]
     public bool KillExistingOnStartup { get; set; } = true;
 
-    /// <summary>Path to the OCR service directory. Relative paths are resolved from the app directory.</summary>
+    /// <summary>OCR服务目录的路径。相对路径从应用程序目录解析。</summary>
     [JsonPropertyName("serviceDirectory")]
     public string ServiceDirectory { get; set; } = "ocr_service";
 
-    /// <summary>Python virtualenv relative path (within ServiceDirectory).</summary>
+    /// <summary>Python虚拟环境的相对路径（在ServiceDirectory内）。</summary>
     [JsonPropertyName("venvPath")]
     public string VenvPath { get; set; } = "venv";
 
-    /// <summary>Whether to redirect Python stdout/stderr to the client log.</summary>
+    /// <summary>是否将Python的标准输出/错误重定向到客户端日志。</summary>
     [JsonPropertyName("capturePythonOutput")]
     public bool CapturePythonOutput { get; set; } = true;
 }
 
 public class LoggingConfig
 {
-    /// <summary>Minimum log level. Values: Trace, Debug, Information, Warning, Error, Critical.</summary>
+    /// <summary>最低日志级别。取值：Trace, Debug, Information, Warning, Error, Critical。</summary>
     [JsonPropertyName("logLevel")]
     public string LogLevel { get; set; } = "Information";
 
-    /// <summary>Whether to output logs to console.</summary>
+    /// <summary>是否将日志输出到控制台。</summary>
     [JsonPropertyName("enableConsole")]
     public bool EnableConsole { get; set; } = true;
 
-    /// <summary>Whether to output logs to rolling files.</summary>
+    /// <summary>是否将日志输出到滚动文件。</summary>
     [JsonPropertyName("enableFile")]
     public bool EnableFile { get; set; } = true;
 
-    /// <summary>Log file directory. Relative paths are resolved from the app directory.</summary>
+    /// <summary>日志文件目录。相对路径从应用程序目录解析。</summary>
     [JsonPropertyName("logDirectory")]
     public string LogDirectory { get; set; } = "Logs";
 
-    /// <summary>Rolling interval. Values: Day, Hour, Month, Year.</summary>
+    /// <summary>滚动间隔。取值：Day, Hour, Month, Year。</summary>
     [JsonPropertyName("rollingInterval")]
     public string RollingInterval { get; set; } = "Day";
 
-    /// <summary>Max single log file size in KB.</summary>
+    /// <summary>单个日志文件的最大大小（KB）。</summary>
     [JsonPropertyName("rollingSizeKB")]
     public int RollingSizeKB { get; set; } = 51200;
 }
