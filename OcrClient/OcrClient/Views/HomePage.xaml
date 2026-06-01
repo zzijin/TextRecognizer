@@ -591,8 +591,14 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <!-- Export / Copy buttons -->
+                                <!-- Export / Copy / Annotate buttons -->
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                                    <ui:Button Command="{Binding ViewModel.ExportAnnotatedImageCommand}"
+                                               Content="导出批注图片"
+                                               Appearance="Info"
+                                               IsEnabled="{Binding ViewModel.AllConfirmed}"
+                                               Icon="{ui:SymbolIcon Image24}"
+                                               Margin="0,0,8,0"/>
                                     <ui:Button Command="{Binding ViewModel.CopyResultsCommand}"
                                                Content="复制确认结果"
                                                Appearance="Secondary"

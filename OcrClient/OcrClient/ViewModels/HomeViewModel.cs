@@ -545,6 +545,228 @@ public partial class HomeViewModel : ViewModel
         Clipboard.SetText(text);
     }
 
+    [RelayCommand]
+    private void ExportAnnotatedImage()
+    {
+        if (_cachedGroups is null || SelectedImage?.FilePath is not { } imagePath) return;
+
+        var imageName = Path.GetFileNameWithoutExtension(imagePath);
+        var dialog = new SaveFileDialog
+        {
+            Filter = "PNG 图片|*.png|JPEG 图片|*.jpg",
+            Title = "导出批注图片",
+            FileName = $"{imageName}_ocr.png"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            using var src = Cv2.ImRead(imagePath);
+            if (src is null || src.Empty()) return;
+
+            var confirmed = _cachedGroups
+                .Where(g => g.IsConfirmed && !string.IsNullOrWhiteSpace(g.ConfirmedText))
+                .ToList();
+            if (confirmed.Count == 0) return;
+
+            var boxColor = new Scalar(0, 200, 0);
+
+            // Collect all bounding rects for adjacency calculation
+            var allRects = confirmed.Select(g => (OpenCvSharp.Rect)g.ScaledUnionRect).ToList();
+
+            // Pick one global label direction based on average gaps across all boxes
+            string globalDir = PickGlobalLabelDirection(allRects);
+
+            // Pass 1: draw all bounding boxes
+            foreach (var group in confirmed)
+            {
+                var rect = (OpenCvSharp.Rect)group.ScaledUnionRect;
+                if (rect.Width <= 0 || rect.Height <= 0) continue;
+
+                int x = Math.Max(0, rect.X), y = Math.Max(0, rect.Y);
+                int w = Math.Min(rect.Width, src.Width - x), h = Math.Min(rect.Height, src.Height - y);
+                if (w <= 0 || h <= 0) continue;
+
+                Cv2.Rectangle(src, new OpenCvSharp.Point(x, y), new OpenCvSharp.Point(x + w, y + h), boxColor, 2);
+            }
+
+            // Pass 2: draw all labels on top
+            foreach (var group in confirmed)
+            {
+                var rect = (OpenCvSharp.Rect)group.ScaledUnionRect;
+                if (rect.Width <= 0 || rect.Height <= 0) continue;
+
+                double gap = GetGapInDirection(allRects, rect, globalDir);
+                var (lx, ly) = GetLabelPosition(rect, globalDir, src.Width, src.Height);
+                DrawChineseText(src, group.ConfirmedText, lx, ly, gap);
+            }
+
+            Cv2.ImWrite(dialog.FileName, src);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to export annotated image: {Error}", ex.Message);
+        }
+    }
+
+    /// <summary>Pick one global direction (left/right/top/bottom) with the largest average gap across all boxes.</summary>
+    private static string PickGlobalLabelDirection(List<OpenCvSharp.Rect> rects)
+    {
+        if (rects.Count == 0) return "right";
+
+        double leftSum = 0, rightSum = 0, topSum = 0, bottomSum = 0;
+        int leftCount = 0, rightCount = 0, topCount = 0, bottomCount = 0;
+
+        for (int i = 0; i < rects.Count; i++)
+        {
+            var r = rects[i];
+
+            // Find nearest other box in each direction
+            double nearestLeft = double.MaxValue, nearestRight = double.MaxValue;
+            double nearestTop = double.MaxValue, nearestBottom = double.MaxValue;
+
+            for (int j = 0; j < rects.Count; j++)
+            {
+                if (i == j) continue;
+                var o = rects[j];
+
+                // Left: other box is to the left, not overlapping vertically too much
+                if (o.Right <= r.Left && !(o.Bottom <= r.Top || o.Top >= r.Bottom))
+                {
+                    double d = r.Left - o.Right;
+                    if (d < nearestLeft) nearestLeft = d;
+                }
+                // Right
+                if (o.Left >= r.Right && !(o.Bottom <= r.Top || o.Top >= r.Bottom))
+                {
+                    double d = o.Left - r.Right;
+                    if (d < nearestRight) nearestRight = d;
+                }
+                // Top
+                if (o.Bottom <= r.Top && !(o.Right <= r.Left || o.Left >= r.Right))
+                {
+                    double d = r.Top - o.Bottom;
+                    if (d < nearestTop) nearestTop = d;
+                }
+                // Bottom
+                if (o.Top >= r.Bottom && !(o.Right <= r.Left || o.Left >= r.Right))
+                {
+                    double d = o.Top - r.Bottom;
+                    if (d < nearestBottom) nearestBottom = d;
+                }
+            }
+
+            if (nearestLeft < double.MaxValue) { leftSum += nearestLeft; leftCount++; }
+            if (nearestRight < double.MaxValue) { rightSum += nearestRight; rightCount++; }
+            if (nearestTop < double.MaxValue) { topSum += nearestTop; topCount++; }
+            if (nearestBottom < double.MaxValue) { bottomSum += nearestBottom; bottomCount++; }
+        }
+
+        double leftAvg = leftCount > 0 ? leftSum / leftCount : 0;
+        double rightAvg = rightCount > 0 ? rightSum / rightCount : 0;
+        double topAvg = topCount > 0 ? topSum / topCount : 0;
+        double bottomAvg = bottomCount > 0 ? bottomSum / bottomCount : 0;
+
+        // Priority: left > right > top > bottom on tie
+        if (leftAvg >= rightAvg && leftAvg >= topAvg && leftAvg >= bottomAvg) return "left";
+        if (rightAvg >= topAvg && rightAvg >= bottomAvg) return "right";
+        if (topAvg >= bottomAvg) return "top";
+        return "bottom";
+    }
+
+    /// <summary>Get label anchor position for a given direction, tight to the box edge.</summary>
+    private static (int x, int y) GetLabelPosition(OpenCvSharp.Rect r, string dir, int imgW, int imgH)
+    {
+        int x = r.X, y = r.Y;
+        switch (dir)
+        {
+            case "left":  x = Math.Max(0, r.Left - 2); y = r.Top; break;
+            case "right": x = Math.Min(imgW - 1, r.Right + 2); y = r.Top; break;
+            case "top":   x = r.Left; y = Math.Max(0, r.Top - 2); break;
+            default:      x = r.Left; y = Math.Min(imgH - 1, r.Bottom + 2); break;
+        }
+        return (x, y);
+    }
+
+    /// <summary>Get the gap to the nearest neighbor box in the given direction.</summary>
+    private static double GetGapInDirection(List<OpenCvSharp.Rect> rects, OpenCvSharp.Rect r, string dir)
+    {
+        double nearest = double.MaxValue;
+        foreach (var o in rects)
+        {
+            if (o == r) continue;
+            double d = dir switch
+            {
+                "left" => !(o.Bottom <= r.Top || o.Top >= r.Bottom) ? r.Left - o.Right : double.MaxValue,
+                "right" => !(o.Bottom <= r.Top || o.Top >= r.Bottom) ? o.Left - r.Right : double.MaxValue,
+                "top" => !(o.Right <= r.Left || o.Left >= r.Right) ? r.Top - o.Bottom : double.MaxValue,
+                _ => !(o.Right <= r.Left || o.Left >= r.Right) ? o.Top - r.Bottom : double.MaxValue,
+            };
+            if (d > 0 && d < nearest) nearest = d;
+        }
+        return nearest < double.MaxValue ? nearest : double.MaxValue;
+    }
+
+    private static void DrawChineseText(Mat mat, string text, int x, int y, double gapPx = double.MaxValue)
+    {
+        const int defaultFontSize = 12;
+        const int minFontSize = 7;
+
+        int fontSize = defaultFontSize;
+        if (gapPx < 100 && gapPx > 0)
+            fontSize = Math.Max(minFontSize, (int)(defaultFontSize * gapPx / 100.0));
+
+        using var font = new System.Drawing.Font("Microsoft YaHei", fontSize, System.Drawing.FontStyle.Regular);
+        using var dummyBmp = new System.Drawing.Bitmap(1, 1);
+        using var g = System.Drawing.Graphics.FromImage(dummyBmp);
+        var size = g.MeasureString(text, font);
+        int tw = (int)Math.Ceiling(size.Width) + 4;
+        int th = (int)Math.Ceiling(size.Height) + 2;
+
+        if (tw <= 4 || th <= 2) return;
+
+        using var textBmp = new System.Drawing.Bitmap(tw, th);
+        using var tg = System.Drawing.Graphics.FromImage(textBmp);
+        tg.Clear(System.Drawing.Color.Transparent);
+        tg.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+
+        // Semi-transparent white background
+        using var bgBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(180, 255, 255, 255));
+        tg.FillRectangle(bgBrush, 0, 0, tw, th);
+
+        // Red text
+        using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Red);
+        tg.DrawString(text, font, brush, 2, 1);
+
+        var data = textBmp.LockBits(
+            new System.Drawing.Rectangle(0, 0, tw, th),
+            System.Drawing.Imaging.ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        try
+        {
+            using var overlay = Mat.FromPixelData(th, tw, MatType.CV_8UC4, data.Scan0, data.Stride);
+            using var overlayBgr = new Mat();
+            Cv2.CvtColor(overlay, overlayBgr, ColorConversionCodes.BGRA2BGR);
+
+            int copyW = Math.Min(tw, mat.Width - x);
+            int copyH = Math.Min(th, mat.Height - y);
+            if (copyW <= 0 || copyH <= 0) return;
+
+            using var roi = new Mat(mat, new OpenCvSharp.Rect(x, y, copyW, copyH));
+            using var overlayRoi = new Mat(overlayBgr, new OpenCvSharp.Rect(0, 0, copyW, copyH));
+            // Alpha blend: overlay where non-white
+            using var mask = new Mat();
+            Cv2.CvtColor(overlayRoi, mask, ColorConversionCodes.BGR2GRAY);
+            Cv2.Threshold(mask, mask, 250, 255, ThresholdTypes.BinaryInv);
+            if (Cv2.CountNonZero(mask) > 0)
+                overlayRoi.CopyTo(roi, mask);
+        }
+        finally
+        {
+            textBmp.UnlockBits(data);
+        }
+    }
+
     private static CrossValidateResult MergeResult(CrossValidateResult? existing, RecognitionMode mode, OcrSingleResult result)
     {
         var merged = existing ?? new CrossValidateResult();
