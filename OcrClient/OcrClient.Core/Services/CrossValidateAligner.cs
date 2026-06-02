@@ -14,8 +14,9 @@ public static class CrossValidateAligner
     public static List<CrossValidateGroup> Align(
         List<List<OcrItem>> modelResults,
         List<string> modelNames,
-        double autoConfirmThreshold = 0.8,
-        double autoFillThreshold = 0.5)
+        double autoConfirmThreshold = 0.85,
+        double autoFillThreshold = 0.6,
+        double decayAlpha = 0.5)
     {
         int modelCount = modelResults.Count;
         if (modelCount == 0) return [];
@@ -100,11 +101,11 @@ public static class CrossValidateAligner
                     groupItems[s] ??= Placeholder();
 
                 var itemList = groupItems.ToList();
-                ApplyWeightedAgreement(itemList, modelCount);
+                ApplyWeightedScoring(itemList, modelCount, decayAlpha);
                 groups.Add(new CrossValidateGroup
                 {
                     Items = itemList,
-                    Agreement = itemList.Where(x => !x.IsPlaceholder).Select(x => x.Agreement).DefaultIfEmpty(1).Max(),
+                    WeightedScore = itemList.Where(x => !x.IsPlaceholder).Select(x => x.WeightedScore).DefaultIfEmpty(0).Max(),
                     UnionRect = ComputeUnionRect(boxes)
                 });
             }
@@ -166,15 +167,15 @@ public static class CrossValidateAligner
                 var real = new CrossValidateGroupItem { Model = modelName, Text = item.Text, Score = item.Score };
                 var place = Placeholder();
 
-                if (item.Score >= autoConfirmThreshold) real.Agreement = 3;
-                else if (item.Score >= autoFillThreshold) real.Agreement = 2;
-                else real.Agreement = 1;
+                real.WeightedScore = item.Score;
+                real.ColorLevel = item.Score >= autoConfirmThreshold ? 2
+                    : item.Score >= autoFillThreshold ? 1 : 0;
 
                 var groupItems = new List<CrossValidateGroupItem> { real, place, place };
                 groups.Add(new CrossValidateGroup
                 {
                     Items = groupItems,
-                    Agreement = real.Agreement,
+                    WeightedScore = real.WeightedScore,
                     UnionRect = item.BoundingRect
                 });
             }
@@ -184,15 +185,15 @@ public static class CrossValidateAligner
         return groups;
     }
 
-    // ── 加权评分 ─────────────────────────────────────────────────────
+    // ── 加权衰减评分 ─────────────────────────────────────────────────
 
     /// <summary>
-    /// 通过最高总置信度选择最佳文本，然后得分 = 该文本的平均置信度。
-    /// 这样，共识（多个模型一致）胜出选择，但置信度质量也被考虑。
-    /// weighted_score = 获胜文本的总置信度和 / 支持该文本的模型数量
+    /// 按文本分类，计算每类的平均置信度，然后应用衰减系数。
+    /// weighted_score = (sum / count) * (1 - alpha * (1 - count / modelCount))
+    /// 这样少数意见即使置信度高也会被衰减。
     /// </summary>
-    private static (string text, double weightedScore, int count) EvaluateBestText(
-        List<CrossValidateGroupItem> active)
+    private static (string text, double weightedScore) EvaluateBestTextWithDecay(
+        List<CrossValidateGroupItem> active, int modelCount, double decayAlpha)
     {
         var textData = new Dictionary<string, (double sum, int count)>();
         foreach (var a in active)
@@ -202,24 +203,48 @@ public static class CrossValidateAligner
             textData[key] = (d.sum + a.Score, d.count + 1);
         }
 
-        // 按最高总置信度选择（共识有利于更多模型）
-        var best = textData.MaxBy(kv => kv.Value.sum);
-        double avg = best.Value.sum / best.Value.count;
-        return (best.Key, avg, best.Value.count);
+        // 计算每组的衰减加权分数
+        var scored = textData.Select(kv =>
+        {
+            double rawAvg = kv.Value.sum / kv.Value.count;
+            double decay = 1.0 - decayAlpha * (1.0 - (double)kv.Value.count / modelCount);
+            return (text: kv.Key, score: rawAvg * decay, rawAvg, count: kv.Value.count);
+        }).ToList();
+
+        // 选择衰减加权分数最高的文本
+        var best = scored.MaxBy(x => x.score);
+        return (best.text, best.score);
     }
 
-    private static void ApplyWeightedAgreement(List<CrossValidateGroupItem> items, int modelCount)
+    private static void ApplyWeightedScoring(List<CrossValidateGroupItem> items, int modelCount, double decayAlpha)
     {
         var active = items.Where(i => !i.IsPlaceholder).ToList();
         if (active.Count == 0) return;
 
-        var (bestText, weightedScore, _) = EvaluateBestText(active);
+        // 为每个文本组计算衰减加权分数
+        var scoresByText = new Dictionary<string, double>();
+        {
+            var textData = new Dictionary<string, (double sum, int count)>();
+            foreach (var a in active)
+            {
+                var key = a.Text.Trim();
+                textData.TryGetValue(key, out var d);
+                textData[key] = (d.sum + a.Score, d.count + 1);
+            }
+            foreach (var kv in textData)
+            {
+                double rawAvg = kv.Value.sum / kv.Value.count;
+                double decay = 1.0 - decayAlpha * (1.0 - (double)kv.Value.count / modelCount);
+                scoresByText[kv.Key] = rawAvg * decay;
+            }
+        }
 
+        // 为每个 item 设置 WeightedScore 和 ColorLevel（纯按阈值，同文本组同色）
         foreach (var item in active)
         {
-            item.Agreement = item.Text.Trim() == bestText
-                ? (weightedScore >= 0.85 ? 3 : weightedScore >= 0.6 ? 2 : 1)
-                : 1;
+            item.WeightedScore = scoresByText.GetValueOrDefault(item.Text.Trim(), 0);
+            item.ColorLevel = item.WeightedScore >= 0.85 ? 2
+                : item.WeightedScore >= 0.6 ? 1 : 0;
         }
     }
 
@@ -231,16 +256,16 @@ public static class CrossValidateAligner
             var active = group.Items.Where(i => !i.IsPlaceholder).ToList();
             if (active.Count == 0) continue;
 
-            var (bestText, weightedScore, _) = EvaluateBestText(active);
-
-            if (weightedScore >= autoConfirmThreshold)
+            // 找到 WeightedScore 最高的 item 作为胜出文本
+            var best = active.MaxBy(i => i.WeightedScore)!;
+            if (best.WeightedScore >= autoConfirmThreshold)
             {
-                group.ConfirmedText = bestText;
+                group.ConfirmedText = best.Text;
                 group.IsConfirmed = true;
             }
-            else if (weightedScore >= autoFillThreshold)
+            else if (best.WeightedScore >= autoFillThreshold)
             {
-                group.ConfirmedText = bestText;
+                group.ConfirmedText = best.Text;
                 group.IsConfirmed = false;
             }
         }
@@ -255,15 +280,15 @@ public static class CrossValidateAligner
             var active = group.Items.Where(i => !i.IsPlaceholder).ToList();
             if (active.Count == 0) continue;
 
-            if (active.All(i => i.Agreement == 3))
+            if (active.All(i => i.ColorLevel == 2))
             {
                 group.ConfirmedText = active[0].Text;
                 group.IsConfirmed = true;
             }
-            else if (active.Any(i => i.Agreement == 2))
+            else if (active.Any(i => i.ColorLevel >= 1))
             {
-                var majority = active.First(i => i.Agreement == 2);
-                group.ConfirmedText = majority.Text;
+                var best = active.MaxBy(i => i.WeightedScore)!;
+                group.ConfirmedText = best.Text;
                 group.IsConfirmed = false;
             }
         }

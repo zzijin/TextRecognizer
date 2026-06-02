@@ -52,6 +52,10 @@ public class ServerConfig
     [JsonPropertyName("crossValidateAutoFillThreshold")]
     public double CrossValidateAutoFillThreshold { get; set; } = 0.6;
 
+    /// <summary>交叉验证：衰减系数 α（0-1）。0=不衰减，值越大共识度要求越高。</summary>
+    [JsonPropertyName("crossValidateDecayAlpha")]
+    public double CrossValidateDecayAlpha { get; set; } = 0.5;
+
     /// <summary>启动时健康检查轮询的最大尝试次数。</summary>
     [JsonPropertyName("startupMaxAttempts")]
     public int StartupMaxAttempts { get; set; } = 120;

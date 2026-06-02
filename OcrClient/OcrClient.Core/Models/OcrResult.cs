@@ -93,7 +93,10 @@ public class CrossValidateGroupItem
     public string Text { get; set; } = "";
     public double Score { get; set; }
     public bool IsPlaceholder { get; set; }
-    public int Agreement { get; set; }  // 3=全部一致, 2=两个一致, 1=唯一
+    /// <summary>加权衰减后的分数（0-1）。由 CrossValidateAligner 计算。</summary>
+    public double WeightedScore { get; set; }
+    /// <summary>颜色级别：2=绿（≥确认阈值），1=黄（≥填写阈值），0=红（低于阈值）。</summary>
+    public int ColorLevel { get; set; }
 }
 
 public class CrossValidateGroup : INotifyPropertyChanged
@@ -102,7 +105,8 @@ public class CrossValidateGroup : INotifyPropertyChanged
     private bool _isConfirmed;
 
     public List<CrossValidateGroupItem> Items { get; set; } = [];
-    public int Agreement { get; set; }
+    /// <summary>该行最高的加权衰减分数。</summary>
+    public double WeightedScore { get; set; }
     public Rect UnionRect { get; set; }          // 在服务器调整大小后的坐标系中
     public double ImageScale { get; set; } = 1.0; // 服务器缩放因子（1024 / max(w,h)）
     [JsonIgnore]

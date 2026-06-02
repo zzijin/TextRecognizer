@@ -405,13 +405,13 @@
                                                                     <DataTrigger Binding="{Binding Items[0].IsPlaceholder}" Value="True">
                                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[0].Agreement}" Value="3">
+                                                                    <DataTrigger Binding="{Binding Items[0].ColorLevel}" Value="2">
                                                                         <Setter Property="Background" Value="#2200AA00"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[0].Agreement}" Value="2">
+                                                                    <DataTrigger Binding="{Binding Items[0].ColorLevel}" Value="1">
                                                                         <Setter Property="Background" Value="#22FFA500"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[0].Agreement}" Value="1">
+                                                                    <DataTrigger Binding="{Binding Items[0].ColorLevel}" Value="0">
                                                                         <Setter Property="Background" Value="#22FF0000"/>
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -440,13 +440,13 @@
                                                                     <DataTrigger Binding="{Binding Items[1].IsPlaceholder}" Value="True">
                                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[1].Agreement}" Value="3">
+                                                                    <DataTrigger Binding="{Binding Items[1].ColorLevel}" Value="2">
                                                                         <Setter Property="Background" Value="#2200AA00"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[1].Agreement}" Value="2">
+                                                                    <DataTrigger Binding="{Binding Items[1].ColorLevel}" Value="1">
                                                                         <Setter Property="Background" Value="#22FFA500"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[1].Agreement}" Value="1">
+                                                                    <DataTrigger Binding="{Binding Items[1].ColorLevel}" Value="0">
                                                                         <Setter Property="Background" Value="#22FF0000"/>
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -475,13 +475,13 @@
                                                                     <DataTrigger Binding="{Binding Items[2].IsPlaceholder}" Value="True">
                                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[2].Agreement}" Value="3">
+                                                                    <DataTrigger Binding="{Binding Items[2].ColorLevel}" Value="2">
                                                                         <Setter Property="Background" Value="#2200AA00"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[2].Agreement}" Value="2">
+                                                                    <DataTrigger Binding="{Binding Items[2].ColorLevel}" Value="1">
                                                                         <Setter Property="Background" Value="#22FFA500"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Items[2].Agreement}" Value="1">
+                                                                    <DataTrigger Binding="{Binding Items[2].ColorLevel}" Value="0">
                                                                         <Setter Property="Background" Value="#22FF0000"/>
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -526,6 +526,7 @@
                                                                     <ColumnDefinition Width="*"/>
                                                                     <ColumnDefinition Width="Auto"/>
                                                                     <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
                                                                 </Grid.ColumnDefinitions>
                                                                 <TextBox Grid.Column="0"
                                                                          Text="{Binding ConfirmedText, UpdateSourceTrigger=PropertyChanged}"
@@ -535,13 +536,18 @@
                                                                          GotFocus="TextBox_GotFocus"
                                                                          LostFocus="TextBox_LostFocus"
                                                                          KeyDown="ConfirmationTextBox_KeyDown"/>
-                                                                <Button Grid.Column="1"
+                                                                <TextBlock Grid.Column="1"
+                                                                          Text="{Binding WeightedScore, StringFormat={}{0:P0}}"
+                                                                          FontSize="10" VerticalAlignment="Center"
+                                                                          Margin="0,0,4,0"
+                                                                          Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                                                <Button Grid.Column="2"
                                                                         Command="{Binding TogglePopupCommand}"
                                                                         Width="20" Height="20" Padding="0"
                                                                         VerticalAlignment="Center"
                                                                         FontSize="11" Content="▸"
                                                                         ToolTip="预览图片区域"/>
-                                                                <Button Grid.Column="2"
+                                                                <Button Grid.Column="3"
                                                                         Command="{Binding ToggleConfirmCommand}"
                                                                         CommandParameter="{Binding}"
                                                                         Width="22" Height="22"

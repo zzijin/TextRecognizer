@@ -140,7 +140,8 @@ public partial class HomeViewModel : ViewModel
             _cachedGroups = CrossValidateAligner.Align(
                 modelResults, modelNames,
                 cfg.CrossValidateAutoConfirmThreshold,
-                cfg.CrossValidateAutoFillThreshold);
+                cfg.CrossValidateAutoFillThreshold,
+                cfg.CrossValidateDecayAlpha);
         }
         else
         {

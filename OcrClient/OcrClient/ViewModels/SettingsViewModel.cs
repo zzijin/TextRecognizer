@@ -80,6 +80,9 @@ public partial class SettingsViewModel : ViewModel
     private double _crossValidateAutoFillThreshold = 0.6;
 
     [ObservableProperty]
+    private double _crossValidateDecayAlpha = 0.5;
+
+    [ObservableProperty]
     private int _startupMaxAttempts = 120;
 
     [ObservableProperty]
@@ -155,6 +158,7 @@ public partial class SettingsViewModel : ViewModel
         SingleModelAutoFillThreshold = c.Server.SingleModelAutoFillThreshold;
         CrossValidateAutoConfirmThreshold = c.Server.CrossValidateAutoConfirmThreshold;
         CrossValidateAutoFillThreshold = c.Server.CrossValidateAutoFillThreshold;
+        CrossValidateDecayAlpha = c.Server.CrossValidateDecayAlpha;
         StartupMaxAttempts = c.Server.StartupMaxAttempts;
         StartupPollIntervalMs = c.Server.StartupPollIntervalMs;
         HealthTimeoutSeconds = c.Server.HealthTimeoutSeconds;
@@ -186,6 +190,7 @@ public partial class SettingsViewModel : ViewModel
         c.Server.SingleModelAutoFillThreshold = SingleModelAutoFillThreshold;
         c.Server.CrossValidateAutoConfirmThreshold = CrossValidateAutoConfirmThreshold;
         c.Server.CrossValidateAutoFillThreshold = CrossValidateAutoFillThreshold;
+        c.Server.CrossValidateDecayAlpha = CrossValidateDecayAlpha;
         c.Server.StartupMaxAttempts = StartupMaxAttempts;
         c.Server.StartupPollIntervalMs = StartupPollIntervalMs;
         c.Server.HealthTimeoutSeconds = HealthTimeoutSeconds;
