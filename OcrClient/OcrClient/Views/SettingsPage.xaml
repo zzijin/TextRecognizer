@@ -156,7 +156,7 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="自动确认阈值" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.SingleModelAutoConfirmThreshold, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.SingleModelAutoConfirmThreshold, UpdateSourceTrigger=LostFocus}"/>
             </Grid>
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
@@ -164,7 +164,7 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="自动填写阈值" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.SingleModelAutoFillThreshold, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.SingleModelAutoFillThreshold, UpdateSourceTrigger=LostFocus}"/>
             </Grid>
 
             <TextBlock Text="交叉验证确认规则" FontSize="16" FontWeight="SemiBold" Margin="0,16,0,10"/>
@@ -174,7 +174,7 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="加权自动确认阈值" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateAutoConfirmThreshold, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateAutoConfirmThreshold, UpdateSourceTrigger=LostFocus}"/>
             </Grid>
             <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
@@ -182,7 +182,15 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="加权自动填写阈值" VerticalAlignment="Center"/>
-                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateAutoFillThreshold, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateAutoFillThreshold, UpdateSourceTrigger=LostFocus}"/>
+            </Grid>
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="衰减系数 α" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Text="{Binding ViewModel.CrossValidateDecayAlpha, UpdateSourceTrigger=LostFocus}"/>
             </Grid>
 
             <!-- OCR 本地服务 (only shown when local service selected) -->
