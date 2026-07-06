@@ -32,16 +32,21 @@ public partial class SettingsViewModel : ViewModel
     [
         new("local_service", "本地服务"),
         new("baidu_cloud", "PaddleOCR云服务"),
-        new("onnx_csharp", "ONNX For CSharp（待支持）"),
+        new("onnx_csharp", "ONNX For CSharp"),
     ];
+
+    [ObservableProperty]
+    private int _onnxCsharpGpuId = 0;
 
     public bool IsLocalServiceSelected => EngineSource == "local_service";
     public bool IsBaiduCloudSelected => EngineSource == "baidu_cloud";
+    public bool IsOnnxCsharpSelected => EngineSource == "onnx_csharp";
 
     partial void OnEngineSourceChanged(string value)
     {
         OnPropertyChanged(nameof(IsLocalServiceSelected));
         OnPropertyChanged(nameof(IsBaiduCloudSelected));
+        OnPropertyChanged(nameof(IsOnnxCsharpSelected));
     }
 
     // ── 本地引擎 ──────────────────────────────────────────────────────────────
@@ -159,6 +164,7 @@ public partial class SettingsViewModel : ViewModel
         CrossValidateAutoConfirmThreshold = c.Server.CrossValidateAutoConfirmThreshold;
         CrossValidateAutoFillThreshold = c.Server.CrossValidateAutoFillThreshold;
         CrossValidateDecayAlpha = c.Server.CrossValidateDecayAlpha;
+        OnnxCsharpGpuId = c.Server.OnnxCsharpGpuId;
         StartupMaxAttempts = c.Server.StartupMaxAttempts;
         StartupPollIntervalMs = c.Server.StartupPollIntervalMs;
         HealthTimeoutSeconds = c.Server.HealthTimeoutSeconds;
@@ -191,6 +197,7 @@ public partial class SettingsViewModel : ViewModel
         c.Server.CrossValidateAutoConfirmThreshold = CrossValidateAutoConfirmThreshold;
         c.Server.CrossValidateAutoFillThreshold = CrossValidateAutoFillThreshold;
         c.Server.CrossValidateDecayAlpha = CrossValidateDecayAlpha;
+        c.Server.OnnxCsharpGpuId = OnnxCsharpGpuId;
         c.Server.StartupMaxAttempts = StartupMaxAttempts;
         c.Server.StartupPollIntervalMs = StartupPollIntervalMs;
         c.Server.HealthTimeoutSeconds = HealthTimeoutSeconds;

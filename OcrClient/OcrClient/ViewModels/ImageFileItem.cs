@@ -33,6 +33,10 @@ public partial class ImageFileItem : ObservableObject
     [ObservableProperty]
     private string? _errorMessage;
 
+    /// <summary>最近一次识别的各阶段耗时统计。</summary>
+    [ObservableProperty]
+    private OcrTiming? _timing;
+
     public HashSet<RecognitionMode> CompletedModes { get; set; } = [];
 
     public bool HasResult => Result is not null;

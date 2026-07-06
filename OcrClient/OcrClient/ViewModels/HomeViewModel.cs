@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using OcrClient.Core.Models;
+using OcrClient.Core.Onnx;
 using OcrClient.Core.Services;
 using OcrClient.UI.Services;
 using System.Collections.ObjectModel;
@@ -18,6 +19,7 @@ public partial class HomeViewModel : ViewModel
 {
     private readonly OcrApiClient _ocrClient;
     private readonly BaiduOcrClient _baiduClient;
+    private readonly OnnxOcrEngine? _onnxEngine;
     private readonly ServerProcessState _serverState;
     private readonly ILogger<HomeViewModel> _logger;
     private readonly ApplicationHostService _appHost;
@@ -58,7 +60,8 @@ public partial class HomeViewModel : ViewModel
     private RecognitionMode _selectedMode = RecognitionMode.CrossValidate;
 
     public bool IsBaiduCloud => _configService.Config.Server.EngineSource == "baidu_cloud";
-    public bool IsLocalService => _configService.Config.Server.EngineSource is "local_service" or "";
+    public bool IsOnnxCsharp => _configService.Config.Server.EngineSource == "onnx_csharp";
+    public bool IsLocalService => _configService.Config.Server.EngineSource is "local_service" or "" or "onnx_csharp";
 
     public List<RecognitionModeOption> ModeOptions =>
         IsBaiduCloud
@@ -224,7 +227,7 @@ public partial class HomeViewModel : ViewModel
     /// <summary>由代码隐藏调用（如回车键），刷新 AllConfirmed 绑定。</summary>
     public void NotifyAllConfirmed() => OnPropertyChanged(nameof(AllConfirmed));
 
-    public bool CanStartRecognition => (IsBaiduCloud || _serverState.IsReady) && !IsBusy && Images.Count > 0;
+    public bool CanStartRecognition => (IsBaiduCloud || IsOnnxCsharp || _serverState.IsReady) && !IsBusy && Images.Count > 0;
 
     [RelayCommand]
     private void RestartServer()
@@ -242,10 +245,11 @@ public partial class HomeViewModel : ViewModel
     public bool IsServerStarting => _serverState.IsStarting;
     public bool IsServerError => _serverState.HasError;
 
-    public HomeViewModel(OcrApiClient ocrClient, BaiduOcrClient baiduClient, ServerProcessState serverState, ILogger<HomeViewModel> logger, ApplicationHostService appHost, AppConfigService configService)
+    public HomeViewModel(OcrApiClient ocrClient, BaiduOcrClient baiduClient, OnnxOcrEngine? onnxEngine, ServerProcessState serverState, ILogger<HomeViewModel> logger, ApplicationHostService appHost, AppConfigService configService)
     {
         _ocrClient = ocrClient;
         _baiduClient = baiduClient;
+        _onnxEngine = onnxEngine;
         _serverState = serverState;
         _logger = logger;
         _appHost = appHost;
@@ -379,9 +383,72 @@ public partial class HomeViewModel : ViewModel
 
                 try
                 {
-                    var base64 = ConvertImageToBase64(item.FilePath);
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    switch (SelectedMode)
+
+                    if (IsOnnxCsharp)
+                    {
+                        // ONNX C# 引擎：后台线程异步推理，避免阻塞 UI
+                        var filePath = item.FilePath;
+                        var mode = SelectedMode;
+                        var engine = _onnxEngine!;
+
+                        await Task.Run(() =>
+                        {
+                            // File.ReadAllBytes + ImDecode 避免 Unicode 路径问题
+                            var bytes = File.ReadAllBytes(filePath);
+                            using var mat = Cv2.ImDecode(bytes, ImreadModes.Color);
+                            if (mat is null || mat.Empty())
+                                throw new InvalidOperationException($"无法加载图片: {filePath}");
+
+                            switch (mode)
+                            {
+                                case RecognitionMode.CrossValidate:
+                                    item.Result = engine.CrossValidate(mat);
+                                    item.CompletedModes.Add(RecognitionMode.CrossValidate);
+                                    item.CompletedModes.Add(RecognitionMode.ServerRec);
+                                    item.CompletedModes.Add(RecognitionMode.MobileRec);
+                                    item.CompletedModes.Add(RecognitionMode.EnMobileRec);
+                                    break;
+                                case RecognitionMode.ServerRec:
+                                    var srvItems = engine.Predict(mat, "server");
+                                    item.Result = MergeResult(null, RecognitionMode.ServerRec,
+                                        new OcrSingleResult { Model = "PP-OCRv5_server_rec", Count = srvItems.Count, Items = srvItems });
+                                    item.CompletedModes.Add(RecognitionMode.ServerRec);
+                                    break;
+                                case RecognitionMode.MobileRec:
+                                    var mobItems = engine.Predict(mat, "mobile_cn");
+                                    item.Result = MergeResult(null, RecognitionMode.MobileRec,
+                                        new OcrSingleResult { Model = "PP-OCRv5_mobile_rec", Count = mobItems.Count, Items = mobItems });
+                                    item.CompletedModes.Add(RecognitionMode.MobileRec);
+                                    break;
+                                case RecognitionMode.EnMobileRec:
+                                    var enItems = engine.Predict(mat, "en_mobile");
+                                    item.Result = MergeResult(null, RecognitionMode.EnMobileRec,
+                                        new OcrSingleResult { Model = "en_PP-OCRv5_mobile_rec", Count = enItems.Count, Items = enItems });
+                                    item.CompletedModes.Add(RecognitionMode.EnMobileRec);
+                                    break;
+                            }
+                        }, token);
+
+                        // 记录耗时（从引擎 LastTiming 拷贝，补充加载+总耗时）
+                        if (engine.LastTiming is { } t)
+                        {
+                            item.Timing = new OcrTiming
+                            {
+                                DetectMs = t.DetectMs,
+                                RecMs = t.RecMs,
+                                BoxCount = t.BoxCount,
+                                ModelCount = t.ModelCount,
+                                DeviceName = t.DeviceName,
+                                LoadMs = sw.Elapsed.TotalMilliseconds - t.TotalMs,
+                                TotalMs = sw.Elapsed.TotalMilliseconds,
+                            };
+                        }
+                    }
+                    else
+                    {
+                        var base64 = ConvertImageToBase64(item.FilePath);
+                        switch (SelectedMode)
                     {
                         case RecognitionMode.CrossValidate:
                             var cvResult = await _ocrClient.CrossValidateAsync(base64, token);
@@ -437,9 +504,11 @@ public partial class HomeViewModel : ViewModel
                             item.CompletedModes.Add(RecognitionMode.BaiduApiGeneral);
                             break;
                     }
+                    } // end else (not onnx_csharp)
                     sw.Stop();
-                    _logger.LogInformation("完成：{FileName} 耗时 {ElapsedMs}ms，{Count} 个结果",
-                        item.FileName, sw.ElapsedMilliseconds,
+                    var timingStr = item.Timing?.ToString() ?? $"{sw.ElapsedMilliseconds}ms";
+                    _logger.LogInformation("完成：{FileName} | {Timing} | {Count} 个结果",
+                        item.FileName, timingStr,
                         item.Result?.ServerRec?.Count ?? item.Result?.MobileRec?.Count ?? item.Result?.EnMobileRec?.Count ?? item.Result?.BaiduApiRec?.Count ?? 0);
 
                     if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))

@@ -56,6 +56,10 @@ public class ServerConfig
     [JsonPropertyName("crossValidateDecayAlpha")]
     public double CrossValidateDecayAlpha { get; set; } = 0.5;
 
+    /// <summary>ONNX C# 推理设备ID。0=第一块GPU，-1=CPU。</summary>
+    [JsonPropertyName("onnxCsharpGpuId")]
+    public int OnnxCsharpGpuId { get; set; } = 0;
+
     /// <summary>启动时健康检查轮询的最大尝试次数。</summary>
     [JsonPropertyName("startupMaxAttempts")]
     public int StartupMaxAttempts { get; set; } = 120;
@@ -98,6 +102,14 @@ public class OcrServiceConfig
     /// <summary>是否将Python的标准输出/错误重定向到客户端日志。</summary>
     [JsonPropertyName("capturePythonOutput")]
     public bool CapturePythonOutput { get; set; } = true;
+
+    /// <summary>ONNX模型文件目录。相对路径从服务目录解析。</summary>
+    [JsonPropertyName("onnxModelsDir")]
+    public string OnnxModelsDir { get; set; } = "models/onnx_models";
+
+    /// <summary>字符字典模型目录（包含PP-OCRv5_server_rec等子目录的config.json）。相对路径从服务目录解析。</summary>
+    [JsonPropertyName("charDictDir")]
+    public string CharDictDir { get; set; } = "models/official_models";
 }
 
 public class LoggingConfig

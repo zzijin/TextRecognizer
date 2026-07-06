@@ -38,6 +38,16 @@ public class ApplicationHostService : IHostedService
             return;
         }
 
+        if (_configService.Config.Server.EngineSource == "onnx_csharp")
+        {
+            _logger.LogInformation("ONNX C# 引擎模式，跳过 Python 服务启动");
+            _serverState.StatusText = "OCR service ready";
+            _serverState.IsReady = true;
+            _serverState.IsStarting = false;
+            await HandleActivationAsync();
+            return;
+        }
+
         _serverState.StatusText = "Connecting...";
         _serverState.IsStarting = true;
         await HandleActivationAsync();
@@ -306,7 +316,7 @@ public class ApplicationHostService : IHostedService
 
     // ── UI 辅助 ───────────────────────────────────────────────────────────
 
-    private static string ResolveServiceDirectory(string configured)
+    public static string ResolveServiceDirectory(string configured)
     {
         if (Path.IsPathRooted(configured)) return configured;
 

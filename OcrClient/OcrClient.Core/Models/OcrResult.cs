@@ -39,6 +39,28 @@ public class OcrSingleResult
     public List<OcrItem> Items { get; set; } = [];
 }
 
+/// <summary>单次 OCR 推理各阶段耗时统计（毫秒）。</summary>
+public class OcrTiming
+{
+    /// <summary>图像加载耗时（ms）。</summary>
+    public double LoadMs { get; set; }
+    /// <summary>检测阶段耗时（ms）：预处理 + 推理 + 后处理。</summary>
+    public double DetectMs { get; set; }
+    /// <summary>识别阶段耗时（ms）：预处理 + 推理 + CTC 解码。</summary>
+    public double RecMs { get; set; }
+    /// <summary>总耗时（ms）。</summary>
+    public double TotalMs { get; set; }
+    /// <summary>检测到的文本区域数。</summary>
+    public int BoxCount { get; set; }
+    /// <summary>识别模型数。</summary>
+    public int ModelCount { get; set; }
+    /// <summary>推理设备名称。</summary>
+    public string DeviceName { get; set; } = "";
+
+    public override string ToString()
+        => $"总{TotalMs:F0}ms | 检测{DetectMs:F0}ms({BoxCount}框) | 识别{RecMs:F0}ms({ModelCount}模型) | {DeviceName}";
+}
+
 public class CrossValidateResult
 {
     [JsonPropertyName("server_rec")]
