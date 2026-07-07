@@ -22,4 +22,36 @@
   <ItemGroup>
     <ProjectReference Include="..\OcrClient.Core\OcrClient.Core.csproj" />
   </ItemGroup>
+
+  <!-- 从 TileMind 复制 CUDA/cuDNN DLLs，使 ONNX Runtime GPU 可以加载 -->
+  <Target Name="CopyCudaDlls" AfterTargets="Build">
+    <PropertyGroup>
+      <CudaDepDir>$(ProjectDir)..\..\..\mahjong_tool\TileMind\Dependency</CudaDepDir>
+      <NativeDir>$(OutputPath)runtimes\win-x64\native\</NativeDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <CudaDlls Include="$(CudaDepDir)\*.dll" />
+    </ItemGroup>
+    <MakeDir Directories="$(NativeDir)" />
+    <Copy SourceFiles="@(CudaDlls)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(CudaDlls)" DestinationFolder="$(NativeDir)" SkipUnchangedFiles="true" />
+    <Message Text="Copied @(CudaDlls->Count()) CUDA DLLs from $(CudaDepDir)" Importance="high" />
+  </Target>
+
+  <!-- 从 ocr_service/models 复制 ONNX 模型到输出目录的 .\models -->
+  <Target Name="CopyOnnxModels" AfterTargets="Build">
+    <PropertyGroup>
+      <SrcModelsDir>$(ProjectDir)..\..\ocr_service\models</SrcModelsDir>
+      <DstModelsDir>$(OutputPath)models\</DstModelsDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <ModelFiles Include="$(SrcModelsDir)\det\**\model.onnx" />
+      <ModelFiles Include="$(SrcModelsDir)\rec\**\model.onnx" />
+      <ModelFiles Include="$(SrcModelsDir)\rec\**\char_dict.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ModelFiles)"
+          DestinationFiles="@(ModelFiles->Replace('$(SrcModelsDir)', '$(DstModelsDir)'))"
+          SkipUnchangedFiles="true" />
+    <Message Text="Copied @(ModelFiles->Count()) ONNX model files to $(DstModelsDir)" Importance="high" />
+  </Target>
 </Project>

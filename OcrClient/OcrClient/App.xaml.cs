@@ -60,22 +60,15 @@ public partial class App : Application
             client.Timeout = TimeSpan.FromSeconds(60);
         });
 
-        // ONNX C# 引擎（仅当引擎来源为 onnx_csharp 时注册）
+        // ONNX C# 引擎
         services.AddSingleton<OnnxOcrEngine>(sp =>
         {
             var config = sp.GetRequiredService<AppConfig>();
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<OnnxOcrEngine>>();
-
-            // 解析模型路径
-            var serverDir = ApplicationHostService.ResolveServiceDirectory(config.OcrService.ServiceDirectory);
-            var onnxDir = Path.IsPathRooted(config.OcrService.OnnxModelsDir)
-                ? config.OcrService.OnnxModelsDir
-                : Path.Combine(serverDir, config.OcrService.OnnxModelsDir);
-            var charDictDir = Path.IsPathRooted(config.OcrService.CharDictDir)
-                ? config.OcrService.CharDictDir
-                : Path.Combine(serverDir, config.OcrService.CharDictDir);
-
-            return new OnnxOcrEngine(onnxDir, charDictDir, config.Server.OnnxCsharpGpuId, logger);
+            var modelsDir = Path.IsPathRooted(config.OcrService.ModelsDir)
+                ? config.OcrService.ModelsDir
+                : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, config.OcrService.ModelsDir));
+            return new OnnxOcrEngine(modelsDir, config.Server.OnnxGpuId, logger);
         });
     }
 

@@ -36,7 +36,10 @@ public partial class SettingsViewModel : ViewModel
     ];
 
     [ObservableProperty]
-    private int _onnxCsharpGpuId = 0;
+    private int _onnxGpuId = 0;
+
+    [ObservableProperty]
+    private string _modelsDir = "models";
 
     public bool IsLocalServiceSelected => EngineSource == "local_service";
     public bool IsBaiduCloudSelected => EngineSource == "baidu_cloud";
@@ -164,7 +167,8 @@ public partial class SettingsViewModel : ViewModel
         CrossValidateAutoConfirmThreshold = c.Server.CrossValidateAutoConfirmThreshold;
         CrossValidateAutoFillThreshold = c.Server.CrossValidateAutoFillThreshold;
         CrossValidateDecayAlpha = c.Server.CrossValidateDecayAlpha;
-        OnnxCsharpGpuId = c.Server.OnnxCsharpGpuId;
+        OnnxGpuId = c.Server.OnnxGpuId;
+        ModelsDir = c.OcrService.ModelsDir;
         StartupMaxAttempts = c.Server.StartupMaxAttempts;
         StartupPollIntervalMs = c.Server.StartupPollIntervalMs;
         HealthTimeoutSeconds = c.Server.HealthTimeoutSeconds;
@@ -197,7 +201,8 @@ public partial class SettingsViewModel : ViewModel
         c.Server.CrossValidateAutoConfirmThreshold = CrossValidateAutoConfirmThreshold;
         c.Server.CrossValidateAutoFillThreshold = CrossValidateAutoFillThreshold;
         c.Server.CrossValidateDecayAlpha = CrossValidateDecayAlpha;
-        c.Server.OnnxCsharpGpuId = OnnxCsharpGpuId;
+        c.Server.OnnxGpuId = OnnxGpuId;
+        c.OcrService.ModelsDir = ModelsDir;
         c.Server.StartupMaxAttempts = StartupMaxAttempts;
         c.Server.StartupPollIntervalMs = StartupPollIntervalMs;
         c.Server.HealthTimeoutSeconds = HealthTimeoutSeconds;
@@ -349,19 +354,44 @@ public partial class SettingsViewModel : ViewModel
         }
         else
         {
-            var onnxDir = Path.Combine(serverDir, "models", "onnx_models");
-            var requiredOnnx = new[] { "PP-OCRv5_server_det.onnx", "PP-OCRv5_server_rec.onnx", "PP-OCRv5_mobile_rec.onnx", "en_PP-OCRv5_mobile_rec.onnx" };
-            var missing = requiredOnnx.Where(f => !File.Exists(Path.Combine(onnxDir, f))).ToList();
-            EnvCheckResults.Add(new("ONNX 模型", missing.Count == 0,
-                missing.Count == 0 ? $"{requiredOnnx.Length} 个就绪" : $"缺少: {string.Join(", ", missing)}"));
+            var modelsDir = Path.IsPathRooted(config.OcrService.ModelsDir)
+                ? config.OcrService.ModelsDir
+                : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, config.OcrService.ModelsDir));
 
-            // 字符字典（CTC 解码需要）
-            var dictDir = Path.Combine(serverDir, "models", "official_models");
-            var dictModels = new[] { "PP-OCRv5_server_rec", "PP-OCRv5_mobile_rec", "en_PP-OCRv5_mobile_rec" };
-            foreach (var dm in dictModels)
+            // 检测 det/ 目录
+            var detDir = Path.Combine(modelsDir, "det");
+            if (Directory.Exists(detDir))
             {
-                var cp = Path.Combine(dictDir, dm, "config.json");
-                EnvCheckResults.Add(new($"字符字典 {dm}", File.Exists(cp), File.Exists(cp) ? cp : "未找到"));
+                var detModels = Directory.GetDirectories(detDir)
+                    .Where(d => File.Exists(Path.Combine(d, "model.onnx")))
+                    .Select(d => Path.GetFileName(d)).ToList();
+                EnvCheckResults.Add(new("检测模型", detModels.Count > 0,
+                    detModels.Count > 0 ? $"{detModels.Count} 个 ({string.Join(", ", detModels)})" : "无"));
+            }
+            else
+            {
+                EnvCheckResults.Add(new("检测模型", false, $"目录不存在: {detDir}"));
+            }
+
+            // 检测 rec/ 目录
+            var recDir = Path.Combine(modelsDir, "rec");
+            if (Directory.Exists(recDir))
+            {
+                var recModels = Directory.GetDirectories(recDir)
+                    .Where(d => File.Exists(Path.Combine(d, "model.onnx")))
+                    .Select(d => Path.GetFileName(d)).ToList();
+                EnvCheckResults.Add(new("识别模型", recModels.Count > 0,
+                    recModels.Count > 0 ? $"{recModels.Count} 个 ({string.Join(", ", recModels)})" : "无"));
+
+                foreach (var rm in recModels)
+                {
+                    var dp = Path.Combine(recDir, rm, "char_dict.json");
+                    EnvCheckResults.Add(new($"  字符字典 {rm}", File.Exists(dp), File.Exists(dp) ? dp : "未找到"));
+                }
+            }
+            else
+            {
+                EnvCheckResults.Add(new("识别模型", false, $"目录不存在: {recDir}"));
             }
         }
 

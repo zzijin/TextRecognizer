@@ -23,14 +23,15 @@ public static class OnnxPreprocess
     /// <summary>
     /// Letterbox resize: 长边缩放到 DetTargetLong，宽高对齐到 stride 倍数。
     /// 返回 (resizedImage, shapeInfo)，shapeInfo 为 (srcH, srcW, newH, newW)。
+    /// 注意：使用 double 精度匹配 Python numpy 的 float64 行为。
     /// </summary>
     public static (Mat Resized, (int srcH, int srcW, int newH, int newW) ShapeInfo)
         LetterboxResize(Mat imageBgr)
     {
         int h = imageBgr.Rows, w = imageBgr.Cols;
-        float ratio = (float)DetTargetLong / Math.Max(h, w);
-        int newH = (int)Math.Round(h * ratio / DetStride) * DetStride;
-        int newW = (int)Math.Round(w * ratio / DetStride) * DetStride;
+        double ratio = (double)DetTargetLong / Math.Max(h, w);
+        int newH = (int)(Math.Round(h * ratio / DetStride) * DetStride);
+        int newW = (int)(Math.Round(w * ratio / DetStride) * DetStride);
         if (newH < DetStride) newH = DetStride;
         if (newW < DetStride) newW = DetStride;
 

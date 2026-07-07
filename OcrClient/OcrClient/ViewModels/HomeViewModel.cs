@@ -394,7 +394,6 @@ public partial class HomeViewModel : ViewModel
 
                         await Task.Run(() =>
                         {
-                            // File.ReadAllBytes + ImDecode 避免 Unicode 路径问题
                             var bytes = File.ReadAllBytes(filePath);
                             using var mat = Cv2.ImDecode(bytes, ImreadModes.Color);
                             if (mat is null || mat.Empty())
@@ -410,19 +409,22 @@ public partial class HomeViewModel : ViewModel
                                     item.CompletedModes.Add(RecognitionMode.EnMobileRec);
                                     break;
                                 case RecognitionMode.ServerRec:
-                                    var srvItems = engine.Predict(mat, "server");
+                                    var srvIdx = engine.FindRecIdx("PP-OCRv5_server_rec");
+                                    var srvItems = engine.Predict(mat, recIdx: srvIdx >= 0 ? srvIdx : 0);
                                     item.Result = MergeResult(null, RecognitionMode.ServerRec,
                                         new OcrSingleResult { Model = "PP-OCRv5_server_rec", Count = srvItems.Count, Items = srvItems });
                                     item.CompletedModes.Add(RecognitionMode.ServerRec);
                                     break;
                                 case RecognitionMode.MobileRec:
-                                    var mobItems = engine.Predict(mat, "mobile_cn");
+                                    var mobIdx = engine.FindRecIdx("PP-OCRv5_mobile_rec");
+                                    var mobItems = engine.Predict(mat, recIdx: mobIdx >= 0 ? mobIdx : 0);
                                     item.Result = MergeResult(null, RecognitionMode.MobileRec,
                                         new OcrSingleResult { Model = "PP-OCRv5_mobile_rec", Count = mobItems.Count, Items = mobItems });
                                     item.CompletedModes.Add(RecognitionMode.MobileRec);
                                     break;
                                 case RecognitionMode.EnMobileRec:
-                                    var enItems = engine.Predict(mat, "en_mobile");
+                                    var enIdx = engine.FindRecIdx("en_PP-OCRv5_mobile_rec");
+                                    var enItems = engine.Predict(mat, recIdx: enIdx >= 0 ? enIdx : 0);
                                     item.Result = MergeResult(null, RecognitionMode.EnMobileRec,
                                         new OcrSingleResult { Model = "en_PP-OCRv5_mobile_rec", Count = enItems.Count, Items = enItems });
                                     item.CompletedModes.Add(RecognitionMode.EnMobileRec);
@@ -631,7 +633,9 @@ public partial class HomeViewModel : ViewModel
 
         try
         {
-            using var src = Cv2.ImRead(imagePath);
+            // File.ReadAllBytes + ImDecode 避免 Unicode 路径问题
+            var imgBytes = File.ReadAllBytes(imagePath);
+            using var src = Cv2.ImDecode(imgBytes, ImreadModes.Color);
             if (src is null || src.Empty()) return;
 
             var confirmed = _cachedGroups

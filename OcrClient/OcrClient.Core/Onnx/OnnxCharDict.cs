@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace OcrClient.Core.Onnx;
 
 /// <summary>
-/// 从 PaddleX 模型的 config.json 加载字符字典。
-/// 字典索引0为空白符（CTC blank），后续索引对应实际字符。
+/// 字符字典。索引0为空白符（CTC blank），后续索引对应实际字符。
+/// 从 char_dict.json 加载（简化格式：["blank", "0", "1", ...]）。
 /// </summary>
 public class OnnxCharDict
 {
@@ -19,27 +19,18 @@ public class OnnxCharDict
         Characters = chars.AsReadOnly();
     }
 
+    /// <summary>创建一个仅含 blank 的空白字典。</summary>
+    public static OnnxCharDict CreateEmpty() => new(new List<string> { "blank" });
+
     /// <summary>
-    /// 从 PaddleX 模型的 config.json 加载字符字典。
+    /// 从 char_dict.json 加载字符字典。
+    /// 文件格式：JSON 字符串数组，索引0="blank"，后续为实际字符。
     /// </summary>
-    /// <param name="configPath">config.json 文件路径</param>
-    public static OnnxCharDict Load(string configPath)
+    public static OnnxCharDict Load(string jsonPath)
     {
-        if (!File.Exists(configPath))
-            throw new FileNotFoundException($"字符字典配置文件未找到: {configPath}");
-
-        var json = File.ReadAllText(configPath);
-        var config = JsonSerializer.Deserialize<JsonElement>(json);
-
-        var chars = new List<string> { "blank" }; // 索引0 = CTC blank
-
-        if (config.TryGetProperty("PostProcess", out var pp) &&
-            pp.TryGetProperty("character_dict", out var dict))
-        {
-            foreach (var item in dict.EnumerateArray())
-                chars.Add(item.GetString() ?? "");
-        }
-
+        var json = File.ReadAllText(jsonPath);
+        var chars = JsonSerializer.Deserialize<List<string>>(json)
+            ?? throw new InvalidOperationException($"字符字典格式无效: {jsonPath}");
         return new OnnxCharDict(chars);
     }
 

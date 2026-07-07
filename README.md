@@ -1,8 +1,8 @@
 # TextRecognizer
 
-基于 PaddleOCR 多模型交叉验证的手写数字表格识别系统，支持本地推理和百度云 API 两种识别源。
+基于 PaddleOCR 多模型交叉验证的手写数字表格识别系统，支持本地推理、C# ONNX 直接推理和百度云 API 三种识别源。
 
-本项目由两部分组成：**Python 服务端**（OCR GPU/CPU 推理）和 **WPF 桌面客户端**（图像管理、结果对比、确认导出）。
+本项目由两部分组成：**Python 服务端**（PaddlePaddle GPU 推理）和 **WPF 桌面客户端**（图像管理、结果对比、确认导出，内置 C# ONNX 引擎）。
 
 ## 项目结构
 
@@ -13,26 +13,30 @@ TextRecognizer/
 │   ├── server_onnx.py               # ONNX Runtime FastAPI 服务（同 API，支持 DML/CPU）
 │   ├── onnx_ocr.py                  # ONNX OCR 引擎（纯 NumPy+cv2，无 PaddlePaddle 依赖）
 │   ├── convert_to_onnx.py           # PIR→ONNX 模型转换脚本
-│   ├── ocr_server_rec.py            # PP-OCRv5_server_rec 独立脚本
-│   ├── ocr_mobile_rec.py            # PP-OCRv5_mobile_rec 独立脚本
-│   ├── ocr_en_mobile_rec.py         # en_PP-OCRv5_mobile_rec 独立脚本
+│   ├── migrate_models.py            # 模型迁移脚本 → 新 det/ rec/ 目录结构
 │   ├── batch_ocr.py                 # 批量识别（GPU + 标注图 + txt）
 │   ├── venv/                        # Python 3.12 虚拟环境
 │   ├── models/
-│   │   ├── official_models/          # PIR 模型 + 字符字典 (~260MB)
-│   │   └── onnx_models/             # ONNX 转换后模型 (~188MB)
+│   │   ├── det/                     # 检测模型（新结构：{name}/model.onnx）
+│   │   ├── rec/                     # 识别模型（新结构：{name}/model.onnx + char_dict.json）
+│   │   ├── official_models/         # PIR 原始模型 + 字符字典 (~260MB)
+│   │   └── onnx_models/             # ONNX 旧结构（保留兼容）(~188MB)
 │   ├── p2o_test_venv/               # paddle2onnx 转换用 venv（paddle 3.1.0 CPU）
 │   ├── logs/                        # 服务端日志
 │   └── doc/                         # PaddleOCR 离线文档
 ├── TestDatas/                       # 测试图片 + 识别结果
 ├── OcrClient/                       # .NET 桌面客户端
 │   ├── OcrClient.slnx               # 解决方案
-│   ├── OcrClient.Core/              # 共享库 (Models + Services)
-│   └── OcrClient/                   # WPF UI 项目
-│       ├── Converters/              # 值转换器
-│       ├── ViewModels/              # MVVM ViewModel 层
-│       ├── Views/                   # WPF 页面
-│       └── Services/                # ApplicationHostService, ServerProcessState, AppConfigService
+│   ├── OcrClient.Core/              # 共享库
+│   │   ├── Models/                  # AppConfig, OcrResult, CrossValidateGroup
+│   │   ├── Services/                # OcrApiClient, BaiduOcrClient, CrossValidateAligner
+│   │   └── Onnx/                    # C# ONNX 引擎（OnnxOcrEngine / Preprocess / Postprocess / CharDict）
+│   ├── OcrClient/                   # WPF UI 项目
+│   │   ├── Converters/              # 值转换器
+│   │   ├── ViewModels/              # MVVM ViewModel 层
+│   │   ├── Views/                   # WPF 页面
+│   │   └── Services/                # ApplicationHostService, ServerProcessState, AppConfigService
+│   └── onnx_test/                   # ONNX 引擎验证测试
 ├── CLAUDE.md
 └── README.md
 ```
@@ -42,13 +46,10 @@ TextRecognizer/
 ### Python 服务端
 
 - Python 3.12+
-- 若使用 PaddlePaddle GPU 引擎：NVIDIA GPU + CUDA 12.6
-- 若使用 ONNX DML 引擎：Windows 10 1903+，DirectX 12 兼容 GPU（NVIDIA/AMD/Intel）
-- ONNX CPU 引擎无特殊硬件要求
+- PaddlePaddle GPU 引擎：NVIDIA GPU + CUDA 12.6 + cuDNN 9.x
 
 #### 依赖安装
 
-**PaddlePaddle GPU 引擎：**
 ```bash
 cd ocr_service
 python -m venv venv
@@ -57,25 +58,11 @@ pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/
 pip install paddleocr==3.5.0 fastapi uvicorn pillow
 ```
 
-**ONNX DML (GPU) 引擎：**
-```bash
-cd ocr_service
-python -m venv venv
-source venv/Scripts/activate
-pip install fastapi uvicorn pillow opencv-python pyclipper numpy onnxruntime-directml
-```
-
-**ONNX CPU 引擎：**
-```bash
-cd ocr_service
-python -m venv venv
-source venv/Scripts/activate
-pip install fastapi uvicorn pillow opencv-python pyclipper numpy onnxruntime
-```
-
 ### .NET 客户端
 
 - .NET 10.0 SDK，VS2026 推荐
+- ONNX C# GPU 模式：NVIDIA GPU + CUDA 12.x + cuDNN 9.x（DLL 从 TileMind 复制）
+- ONNX C# CPU 模式：无特殊硬件要求
 
 ```bash
 dotnet build OcrClient/OcrClient/OcrClient.UI.csproj
@@ -86,21 +73,20 @@ dotnet build OcrClient/OcrClient/OcrClient.UI.csproj
 ### 客户端自动启动（推荐）
 
 1. 用 VS2026 打开 `OcrClient/OcrClient.slnx`，F5 运行
-2. 客户端按设置页所选引擎自动启动对应 Python 服务
+2. 客户端按设置页所选引擎来源自动启动：
+   - **本地服务**：启动 Python 子进程（PaddlePaddle 或 ONNX）
+   - **ONNX For CSharp**：引擎内置于 C# 进程，无需 Python
+   - **百度云**：直接调用云端 API
 3. 等待状态栏变绿即可使用
-4. 如需切换引擎，在设置页选择后保存，重启客户端生效
+4. 切换引擎后保存设置，重启客户端生效
 
-### 手动启动
+### 手动启动（Python 服务端）
 
 ```bash
-# PaddlePaddle GPU
-cd ocr_service && source venv/Scripts/activate && python server.py
-
-# ONNX DML (GPU)
-cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=dml python server_onnx.py
-
-# ONNX CPU
-cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=cpu python server_onnx.py
+cd ocr_service && source venv/Scripts/activate
+python server.py                                # PaddlePaddle GPU
+ONNX_DEVICE=dml python server_onnx.py           # ONNX DML (GPU)
+ONNX_DEVICE=cpu python server_onnx.py           # ONNX CPU
 ```
 
 ## 客户端使用说明
@@ -109,43 +95,52 @@ cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=cpu python server_
 
 1. **导入图片** — 点击「导入图片」，支持多选，自动去重
 2. **选择模式** — 下拉菜单：
-   - 本地服务：交叉验证（三模型）/ 单一模型
-   - 云服务：百度云交叉验证（双模型）/ 高精度单模型 / 标准单模型
-3. **开始识别** — 点击「开始识别」（服务就绪后才可用），实时进度 + 计时
+   - 本地服务 / ONNX C#：交叉验证（三模型）/ 单一模型
+   - 百度云：交叉验证（双模型）/ 高精度单模型 / 标准单模型
+3. **开始识别** — 点击「开始识别」，实时进度 + 计时，ONNX C# 模式下异步不卡 UI
 4. **查看结果** — 点击左侧图片列表：
    - 交叉验证：多模型结果对齐，加权评分颜色标记（绿/黄/红）
    - 单一模型：显示识别文本和置信度，颜色基于置信度阈值
-5. **确认结果** — 确认列（所有模式）：
+5. **确认结果** — 确认列：
    - 绿色行自动确认，黄色行需手动确认，红色行需手动填写
-   - 文本框获焦时全选文字，可直接输入覆盖
    - 按回车确认当前行，焦点自动跳转到下一未确认行
    - 点击 ▸ 预览原图裁剪区域，点击 ○/✓ 切换确认状态
-6. **导出/复制/批注** — 全部确认后「导出确认结果」「复制确认结果」「导出批注图片」可用
-   - 批注图片：自动在识别框上绘制标注文字（白底红字），标注方向根据全局间距统计自动选择
-7. **环境检测** — 设置页面一键检测：本地服务检测 Python/venv/GPU/脚本/模型；云服务检测网络连接
+6. **导出** — 「导出确认结果」「复制确认结果」「导出批注图片」
 
-### 推理引擎选择
+### 推理引擎对比
 
 设置页 → 引擎来源：
 
-| 来源 | 说明 |
-|---|---|
-| 本地服务 | ONNX CPU / ONNX DML (GPU) / PaddlePaddle (GPU)，支持三模型交叉验证 |
-| PaddleOCR云服务 | 百度云通用文字识别高精度版 + 标准版，支持双模型交叉验证 |
+| 来源 | 说明 | GPU | CPU |
+|------|------|-----|-----|
+| 本地服务 | Python 子进程，PaddlePaddle 或 ONNX | ~2s/图 | ~50s/图 |
+| **ONNX For CSharp** | **C# 进程内推理，无 Python 依赖** | **~274ms/图** | **~4.5s/图** |
+| PaddleOCR云服务 | 百度云 API，双模型交叉验证 | N/A | N/A |
 
-本地服务性能：
+### 模型目录结构
 
-| 引擎 | 速度 |
-|---|---|
-| ONNX CPU | ~50s/图 |
-| ONNX DML (GPU) | ~2s/图 |
-| PaddlePaddle (GPU) | ~2s/图 |
+ONNX C# 引擎的模型目录：
 
-百度云模式：首页可选择交叉验证（双模型加权）、高精度单模型、标准单模型。
+```
+.\models\                        ← 配置项 ModelsDir
+├── det\                         ← 检测模型
+│   └── PP-OCRv5_server_det\
+│       └── model.onnx
+├── rec\                         ← 识别模型
+│   ├── PP-OCRv5_server_rec\
+│   │   ├── model.onnx
+│   │   └── char_dict.json       ← 字符字典（["blank","0","1",...]）
+│   ├── PP-OCRv5_mobile_rec\
+│   │   ├── model.onnx
+│   │   └── char_dict.json
+│   └── en_PP-OCRv5_mobile_rec\
+│       ├── model.onnx
+│       └── char_dict.json
+```
+
+引擎自动扫描 `det/` `rec/` 子目录，加载所有可用模型。添加新模型只需创建子目录放入 `model.onnx` 和 `char_dict.json`，无需修改代码。
 
 ### 确认规则配置
-
-设置页可配置所有模式的确认阈值（需重启生效）：
 
 | 阈值 | 默认值 | 作用 |
 |---|---|---|
@@ -155,23 +150,13 @@ cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=cpu python server_
 | 交叉验证加权自动填写 | 0.6 | weighted_score >= 此值自动填写 |
 | 衰减系数 α | 0.5 | 共识度惩罚强度，越大惩罚越重 |
 
-切换引擎后需保存设置并重启客户端。
-
-### 服务状态
-
-| 颜色 | 含义 |
-|---|---|
-| 黄色 | 连接中 / 启动中 |
-| 绿色 | 就绪 |
-| 红色 | 连接断开（点击「重新连接服务」） |
-
 ## OCR 服务 API
 
-所有引擎共享相同 API：
+Python 服务端提供的 REST API（所有引擎共享）：
 
 | 端点 | 方法 | 说明 |
 |---|---|---|
-| `/health` | GET | 健康检查（含设备类型和请求统计） |
+| `/health` | GET | 健康检查 |
 | `/ocr/server_rec` | POST | PP-OCRv5_server_rec |
 | `/ocr/mobile_rec` | POST | PP-OCRv5_mobile_rec |
 | `/ocr/en_mobile_rec` | POST | en_PP-OCRv5_mobile_rec |
@@ -179,75 +164,44 @@ cd ocr_service && source venv/Scripts/activate && ONNX_DEVICE=cpu python server_
 
 请求格式：`{"image": "<base64>"}`
 
-## 交叉验证加权算法
-
-多模型交叉验证使用带衰减系数的置信度加权算法：
-
-1. **YX排序与行聚类**：所有模型结果按 Y 中心排序，聚类为行，行内按 X 排序
-2. **同位置分组**：行内按 IoU（阈值 0.3）跨模型匹配
-3. **加权衰减评分**：
-   - 按文本分类，计算每类的置信度和（sum）与模型数（count）
-   - **原始平均**：`raw_avg = sum / count`
-   - **衰减因子**：`decay = 1 - α × (1 - count / modelCount)`，共识模型越少惩罚越重
-   - **加权分数**：`weighted_score = raw_avg × decay`
-   - **选择最佳文本**：取 weighted_score 最高的（共识度 + 置信度综合）
-4. **颜色标记**（按加权分数阈值）：
-   - ColorLevel 2（绿）：weighted_score ≥ 自动确认阈值
-   - ColorLevel 1（黄）：weighted_score ≥ 自动填写阈值
-   - ColorLevel 0（红）：低于阈值
-   - 同文本组的识别结果标记为相同颜色
-5. **自动确认规则**（阈值可配置）：
-   - weighted_score ≥ 0.85 → 自动确认（绿）
-   - weighted_score ≥ 0.6 → 自动填写（黄）
-   - < 0.6 → 不填写（红）
-
-**衰减系数 α**（默认 0.5，可在设置中调整）：
-
-| 共识模型数（3模型） | 衰减因子 | 效果 |
-|---|---|---|
-| 3/3 | 1.0 | 无衰减 |
-| 2/3 | 0.833 | 中等惩罚 |
-| 1/3 | 0.667 | 强惩罚 |
-
-**评分示例**（3模型，α=0.5）：
-
-| 场景 | 最佳文本 | 原始平均 | 模型数 | 衰减 | 加权分 | 结果 |
-|---|---|---|---|---|---|---|
-| 三个模型一致高置信度 | "369" | 0.947 | 3 | 1.0 | 0.947 | 绿→自动确认 |
-| 两个一致，一个分歧 | "369" | 0.875 | 2 | 0.833 | 0.729 | 黄→自动填写 |
-| 单模型高置信，另两个一致不同 | "B"(两个) | 0.500 | 2 | 0.833 | 0.417 | 红→不填写 |
-
 ## 识别模型
 
-| 模型 | PIR 大小 | ONNX 大小 | 说明 |
+| 模型 | ONNX 大小 | 字符集 | 说明 |
 |---|---|---|---|
-| PP-OCRv5_server_det | 85MB | 84MB | 检测模型（共享） |
-| PP-OCRv5_server_rec | 82MB | 81MB | 服务端识别（18385 类） |
-| PP-OCRv5_mobile_rec | 13MB | 16MB | 移动端中文识别（18385 类） |
-| en_PP-OCRv5_mobile_rec | 7.7MB | 7.5MB | 移动端英文识别（438 类） |
+| PP-OCRv5_server_det | 84MB | — | 检测模型（共享） |
+| PP-OCRv5_server_rec | 81MB | 18384 | 服务端识别（最高精度） |
+| PP-OCRv5_mobile_rec | 16MB | 18384 | 移动端中文识别 |
+| en_PP-OCRv5_mobile_rec | 7.5MB | 437 | 移动端英文识别 |
 
-## 性能（RTX 4080 Laptop, 12GB）
+## 性能对比（RTX 4080 Laptop, 5 张麻将图片）
 
-| 模式 | 单模型 | 三模型交叉验证 |
+| 模式 | 交叉验证 (3模型) | 单模型 (server_rec) |
 |---|---|---|
-| PaddlePaddle GPU | 0.8–1.4s | 2.4s |
-| ONNX DML (GPU) | ~0.6s | ~1.9s |
-| ONNX CPU | ~1.2s | ~3.7s（理论） |
+| **C# ONNX GPU (CUDA)** | **274ms** | **92ms** |
+| Python ONNX GPU (DML) | ~1.9s | ~0.6s |
+| Python PaddlePaddle GPU | ~2.4s | ~1.4s |
+| C# ONNX CPU | ~4.5s | ~4.7s |
+
+> C# ONNX GPU 比 Python ONNX DML 快约 **7 倍**，比 PaddlePaddle GPU 快约 **9 倍**。
+
+## 交叉验证加权算法
+
+1. **YX排序**：所有模型结果按 Y 中心聚类为行，行内按 X 排序
+2. **同位置分组**：行内按 IoU（阈值 0.3）跨模型匹配
+3. **加权衰减评分**：`weighted_score = (sum/count) × (1 - α × (1 - count/modelCount))`
+4. **颜色标记**：绿(≥0.85) / 黄(≥0.6) / 红(<0.6)
+5. **自动确认**：最高 weighted_score 的文本胜出
 
 ## 客户端配置
 
-首次运行自动生成 `settings/appsettings.json`，支持通过设置界面修改：
-- 引擎来源（本地服务 / 百度云 API）
-- 推理引擎（ONNX CPU / ONNX DML / PaddlePaddle）
-- 百度云密钥（API Key / Secret Key）
-- 确认阈值（单模型 + 交叉验证，可分别配置）
-- 服务连接（地址、超时、重试参数）
-- OCR 本地服务（目录路径、venv 路径、启动行为）
-- 日志（级别、输出目标、轮转参数）
+`settings/appsettings.json` 主要配置项：
 
-## 未来计划
-
-1. **客户端 ONNX 集成**：将 ONNX 模型推理从 Python 服务端迁移到 C# 进程内，消除 Python 依赖
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `server.engineSource` | `local_service` | 引擎来源：local_service / baidu_cloud / onnx_csharp |
+| `server.engine` | `onnx_cpu` | 本地引擎：onnx_cpu / onnx_dml / paddle |
+| `server.onnxGpuId` | `0` | ONNX C# GPU 设备 ID（-1=CPU） |
+| `ocrService.modelsDir` | `models` | ONNX 模型目录（含 det/ rec/） |
 
 ## License
 

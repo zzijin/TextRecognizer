@@ -56,10 +56,18 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="GPU 设备ID" VerticalAlignment="Center"/>
-                    <TextBox Grid.Column="1" Text="{Binding ViewModel.OnnxCsharpGpuId, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.OnnxGpuId, UpdateSourceTrigger=PropertyChanged}"/>
                 </Grid>
                 <TextBlock Text="0=第一块GPU，-1=CPU" FontSize="12"
                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" Margin="160,0,0,6"/>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="模型目录" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1" Text="{Binding ViewModel.ModelsDir, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
             </StackPanel>
 
             <!-- Local service settings -->

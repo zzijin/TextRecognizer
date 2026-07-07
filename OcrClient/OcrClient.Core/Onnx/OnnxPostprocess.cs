@@ -289,7 +289,7 @@ public static class OnnxPostprocess
     // ── 图像裁剪 ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// 根据检测框从原图裁剪文字区域。
+    /// 根据检测框从原图裁剪文字区域（轴对齐，不扶正）。
     /// </summary>
     public static List<Mat> CropRegions(Mat imageBgr, List<Point2f[]> boxes)
     {
@@ -310,6 +310,57 @@ public static class OnnxPostprocess
                 crops.Add(imageBgr[y1..y2, x1..x2].Clone());
             else
                 crops.Add(new Mat(48, 48, MatType.CV_8UC3, Scalar.Black));
+        }
+        return crops;
+    }
+
+    /// <summary>
+    /// 根据检测框从原图裁剪并扶正文字区域。
+    /// 用 4 个角点做透视变换，将旋转文字映射为水平矩形，再裁剪。
+    /// 处理 90°/180° 等大角度旋转，确保送入识别模型的文字始终水平。
+    /// </summary>
+    public static List<Mat> CropRegionsStraightened(Mat imageBgr, List<Point2f[]> boxes)
+    {
+        var crops = new List<Mat>(boxes.Count);
+        foreach (var box in boxes)
+        {
+            // 确保角点为 TL, TR, BR, BL 顺序
+            var ordered = OrderPoints(box);
+
+            // 计算目标矩形的宽高
+            float wTop = MathF.Sqrt(MathF.Pow(ordered[1].X - ordered[0].X, 2) + MathF.Pow(ordered[1].Y - ordered[0].Y, 2));
+            float wBot = MathF.Sqrt(MathF.Pow(ordered[2].X - ordered[3].X, 2) + MathF.Pow(ordered[2].Y - ordered[3].Y, 2));
+            float dstW = MathF.Max(wTop, wBot);
+
+            float hLef = MathF.Sqrt(MathF.Pow(ordered[3].X - ordered[0].X, 2) + MathF.Pow(ordered[3].Y - ordered[0].Y, 2));
+            float hRig = MathF.Sqrt(MathF.Pow(ordered[2].X - ordered[1].X, 2) + MathF.Pow(ordered[2].Y - ordered[1].Y, 2));
+            float dstH = MathF.Max(hLef, hRig);
+
+            if (dstW < 4 || dstH < 4)
+            {
+                crops.Add(new Mat(48, 48, MatType.CV_8UC3, Scalar.Black));
+                continue;
+            }
+
+            // 透视变换：源 4 点 → 目标水平矩形
+            var srcPts = new Point2f[4];
+            srcPts[0] = ordered[0];                          // TL
+            srcPts[1] = ordered[1];                          // TR
+            srcPts[2] = ordered[2];                          // BR
+            srcPts[3] = ordered[3];                          // BL
+
+            var dstPts = new Point2f[4];
+            dstPts[0] = new Point2f(0, 0);                  // TL
+            dstPts[1] = new Point2f(dstW - 1, 0);           // TR
+            dstPts[2] = new Point2f(dstW - 1, dstH - 1);    // BR
+            dstPts[3] = new Point2f(0, dstH - 1);           // BL
+
+            var M = Cv2.GetPerspectiveTransform(srcPts, dstPts);
+            var warped = new Mat();
+            Cv2.WarpPerspective(imageBgr, warped, M, new Size((int)dstW, (int)dstH),
+                InterpolationFlags.Linear, BorderTypes.Replicate);
+
+            crops.Add(warped);
         }
         return crops;
     }
