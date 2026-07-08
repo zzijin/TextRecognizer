@@ -243,7 +243,7 @@ public class OnnxOcrEngine : IDisposable
         return items;
     }
 
-    /// <summary>所有识别模型的交叉验证。</summary>
+    /// <summary>所有识别模型的交叉验证。识别模型并行执行以最大化 GPU 利用率。</summary>
     public CrossValidateResult CrossValidate(Mat imageBgr, int detIdx = 0)
     {
         var t0 = System.Diagnostics.Stopwatch.StartNew();
@@ -258,10 +258,9 @@ public class OnnxOcrEngine : IDisposable
         }
 
         var result = new CrossValidateResult();
-        int modelCount = 0;
 
-        // 运行所有识别模型
-        for (int i = 0; i < _recSessions.Count; i++)
+        // 并行运行所有识别模型（每个模型使用独立的 session，线程安全）
+        Parallel.For(0, _recSessions.Count, i =>
         {
             var recResults = Recognize(crops, i);
             var items = new List<OcrItem>(recResults.Count);
@@ -277,17 +276,14 @@ public class OnnxOcrEngine : IDisposable
                 });
             }
             var single = new OcrSingleResult { Model = _recNames[i], Count = items.Count, Items = items };
-
-            // 赋值到对应字段（兼容现有 CrossValidateAligner）
-            AssignRecResult(result, _recNames[i], single);
-            modelCount++;
-        }
+            lock (result) { AssignRecResult(result, _recNames[i], single); }
+        });
 
         var totalMs = t0.Elapsed.TotalMilliseconds;
         LastTiming = new OcrTiming
         {
             DetectMs = detMs, RecMs = totalMs - detMs, TotalMs = totalMs,
-            BoxCount = boxes.Count, ModelCount = modelCount, DeviceName = _deviceName,
+            BoxCount = boxes.Count, ModelCount = _recSessions.Count, DeviceName = _deviceName,
         };
 
         _logger.LogInformation("CrossValidate: {Timing}", LastTiming);

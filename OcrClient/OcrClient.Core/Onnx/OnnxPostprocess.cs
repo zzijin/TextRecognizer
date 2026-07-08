@@ -24,21 +24,20 @@ public static class OnnxPostprocess
     /// <param name="minSize">最小边长（默认 3）</param>
     /// <returns>(boxes, scores) — boxes 是 Point2f[4] 的列表</returns>
     public static (List<Point2f[]> Boxes, List<float> Scores) BoxesFromBitmap(
-        float[,] pred, (int h, int w) srcShape,
+        Mat predMat, (int h, int w) srcShape,
         (int srcH, int srcW, int newH, int newW) shapeInfo,
         float thresh = 0.3f, float boxThresh = 0.5f,
         float unclipRatio = 1.5f, int minSize = 3)
     {
-        int predH = pred.GetLength(0);
-        int predW = pred.GetLength(1);
+        int predH = predMat.Rows;
+        int predW = predMat.Cols;
         float ratioH = (float)srcShape.h / shapeInfo.newH;
         float ratioW = (float)srcShape.w / shapeInfo.newW;
 
-        // 二值化
-        using var bitmap = new Mat(predH, predW, MatType.CV_8UC1);
-        for (int y = 0; y < predH; y++)
-            for (int x = 0; x < predW; x++)
-                bitmap.Set<byte>(y, x, pred[y, x] > thresh ? (byte)255 : (byte)0);
+        // 二值化（OpenCV 向量化阈值）
+        using var bitmap = new Mat();
+        Cv2.Threshold(predMat, bitmap, thresh, 1.0, ThresholdTypes.Binary);
+        bitmap.ConvertTo(bitmap, MatType.CV_8UC1, 255.0);
 
         // 查找轮廓
         Cv2.FindContours(bitmap, out var contours, out _, RetrievalModes.List, ContourApproximationModes.ApproxSimple);
@@ -51,36 +50,21 @@ public static class OnnxPostprocess
             if (contour.Length < 4)
                 continue;
 
-            // 最小面积外接矩形
             var rect = Cv2.MinAreaRect(contour);
-            var points = rect.Points(); // 4 个角点
+            var points = rect.Points();
 
-            // 过滤小框
             float sideShort = Math.Min(rect.Size.Width, rect.Size.Height);
             if (sideShort < minSize)
                 continue;
 
-            // 计算框内平均分
-            var mask = new Mat(predH, predW, MatType.CV_8UC1, Scalar.Black);
-            var pts = points.Select(p => new OpenCvSharp.Point((int)Math.Round(p.X), (int)Math.Round(p.Y))).ToArray();
-            Cv2.FillPoly(mask, [pts], Scalar.White);
-
-            float sum = 0;
-            int count = 0;
-            for (int my = 0; my < predH; my++)
-            {
-                for (int mx = 0; mx < predW; mx++)
-                {
-                    if (mask.Get<byte>(my, mx) > 0)
-                    {
-                        sum += pred[my, mx];
-                        count++;
-                    }
-                }
-            }
+            // 计算框内平均分 — 使用 Cv2.Mean 替代逐像素循环（巨大加速）
+            using var mask = new Mat(predH, predW, MatType.CV_8UC1, Scalar.Black);
+            var maskPts = points.Select(p => new OpenCvSharp.Point((int)Math.Round(p.X), (int)Math.Round(p.Y))).ToArray();
+            Cv2.FillPoly(mask, [maskPts], Scalar.White);
+            var meanVal = Cv2.Mean(predMat, mask);
+            float score = (float)meanVal.Val0;
             mask.Dispose();
 
-            float score = count > 0 ? sum / count : 0;
             if (score < boxThresh)
                 continue;
 
@@ -189,21 +173,24 @@ public static class OnnxPostprocess
 
     /// <summary>
     /// 从 DenseTensor 输出（det 模型输出 [1, 1, H, W]）提取文本框。
+    /// 直接将 tensor 数据构造为 Mat，避免 float[,] 中间拷贝。
     /// </summary>
-    public static (List<Point2f[]> Boxes, List<float> Scores) ExtractBoxes(
+    public static unsafe (List<Point2f[]> Boxes, List<float> Scores) ExtractBoxes(
         DenseTensor<float> output, (int h, int w) srcShape,
         (int srcH, int srcW, int newH, int newW) shapeInfo,
         float thresh = 0.3f, float boxThresh = 0.5f, float unclipRatio = 1.5f)
     {
         int h = output.Dimensions[2];
         int w = output.Dimensions[3];
-        var pred = new float[h, w];
-        // output[0, 0, y, x]
+        int planeSize = h * w;
+        var predMat = new Mat(h, w, MatType.CV_32FC1);
+        var dst = new Span<float>((void*)predMat.DataPointer, planeSize);
+        int idx = 0;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                pred[y, x] = output[0, 0, y, x];
+                dst[idx++] = output[0, 0, y, x];
 
-        return BoxesFromBitmap(pred, srcShape, shapeInfo, thresh, boxThresh, unclipRatio);
+        return BoxesFromBitmap(predMat, srcShape, shapeInfo, thresh, boxThresh, unclipRatio);
     }
 
     // ── CTC Greedy 解码 ──────────────────────────────────────────────────────
