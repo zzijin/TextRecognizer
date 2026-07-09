@@ -1,11 +1,11 @@
 using Microsoft.ML.OnnxRuntime.Tensors;
+using OcrClient.Core.Interop;
 using OpenCvSharp;
 
 namespace OcrClient.Core.Onnx;
 
 /// <summary>
-/// ONNX 模型的图像预处理。unsafe 仅用于从 Mat.DataPointer (byte*) 创建 Span&lt;float&gt;，
-/// 其余所有内存访问操作均为安全的 Span API（Slice/CopyTo）。
+/// ONNX 模型的图像预处理。纯托管代码，unsafe 封装在 OcrClient.Core.Interop 项目中。
 /// </summary>
 public static class OnnxPreprocess
 {
@@ -31,12 +31,7 @@ public static class OnnxPreprocess
         return (resized, (h, w, newH, newW));
     }
 
-    // ⚠ 唯一必须 unsafe 的地方：OpenCV 暴露的内存指针是 byte*，不是 IntPtr。
-    //    创建 Span 后所有操作均为安全 API。
-    private static unsafe Span<float> AsFloatSpan(Mat m, int length)
-        => new((void*)m.DataPointer, length);
-
-    public static unsafe DenseTensor<float> DetNormalize(Mat imageBgr)
+    public static DenseTensor<float> DetNormalize(Mat imageBgr)
     {
         int h = imageBgr.Rows, w = imageBgr.Cols;
         int planeSize = h * w;
@@ -55,7 +50,7 @@ public static class OnnxPreprocess
             Cv2.Subtract(channels[c], meanMat, channels[c]);
             Cv2.Divide(channels[c], stdMat, channels[c]);
 
-            AsFloatSpan(channels[c], planeSize).CopyTo(dst.Slice(c * planeSize, planeSize));
+            MatSpanInterop.AsFloatSpan(channels[c], planeSize).CopyTo(dst.Slice(c * planeSize, planeSize));
         }
         foreach (var ch in channels) ch.Dispose();
 
@@ -77,7 +72,7 @@ public static class OnnxPreprocess
     public const int RecImgW = 320;
     public const int RecMaxW = 3200;
 
-    public static unsafe DenseTensor<float> PreprocessRec(Mat cropBgr)
+    public static DenseTensor<float> PreprocessRec(Mat cropBgr)
     {
         int h = cropBgr.Rows, w = cropBgr.Cols;
         float whRatio = (float)w / h;
@@ -106,7 +101,7 @@ public static class OnnxPreprocess
 
         for (int c = 0; c < 3; c++)
         {
-            var src = AsFloatSpan(channels[c], srcRowSize * RecImgH);
+            var src = MatSpanInterop.AsFloatSpan(channels[c], srcRowSize * RecImgH);
             var chDst = dst.Slice(c * planeSize, planeSize);
             for (int y = 0; y < RecImgH; y++)
                 src.Slice(y * srcRowSize, srcRowSize).CopyTo(chDst.Slice(y * RecImgW, srcRowSize));
@@ -116,11 +111,7 @@ public static class OnnxPreprocess
         return tensor;
     }
 
-    /// <summary>
-    /// 批量识别预处理。返回形状 [batch, 3, 48, imgW] 的 DenseTensor。
-    /// imgW 取所有 crop 的最大宽度。模型支持动态宽度 [B,3,48,W]。
-    /// </summary>
-    public static unsafe DenseTensor<float> PreprocessRecBatch(List<Mat> crops)
+    public static DenseTensor<float> PreprocessRecBatch(List<Mat> crops)
     {
         int batch = crops.Count;
 
@@ -166,7 +157,7 @@ public static class OnnxPreprocess
             int srcSize = resizedW * RecImgH;
             for (int c = 0; c < 3; c++)
             {
-                var src = AsFloatSpan(channels[c], srcSize);
+                var src = MatSpanInterop.AsFloatSpan(channels[c], srcSize);
                 var chDst = dst.Slice(batchOff + c * planeSize, planeSize);
                 for (int y = 0; y < RecImgH; y++)
                     src.Slice(y * resizedW, resizedW).CopyTo(chDst.Slice(y * imgW, resizedW));

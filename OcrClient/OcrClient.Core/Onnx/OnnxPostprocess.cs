@@ -1,4 +1,5 @@
 using Microsoft.ML.OnnxRuntime.Tensors;
+using OcrClient.Core.Interop;
 using OpenCvSharp;
 
 namespace OcrClient.Core.Onnx;
@@ -175,7 +176,7 @@ public static class OnnxPostprocess
     /// 从 DenseTensor 输出（det 模型输出 [1, 1, H, W]）提取文本框。
     /// 直接将 tensor 数据构造为 Mat，避免 float[,] 中间拷贝。
     /// </summary>
-    public static unsafe (List<Point2f[]> Boxes, List<float> Scores) ExtractBoxes(
+    public static (List<Point2f[]> Boxes, List<float> Scores) ExtractBoxes(
         DenseTensor<float> output, (int h, int w) srcShape,
         (int srcH, int srcW, int newH, int newW) shapeInfo,
         float thresh = 0.3f, float boxThresh = 0.5f, float unclipRatio = 1.5f)
@@ -184,7 +185,7 @@ public static class OnnxPostprocess
         int w = output.Dimensions[3];
         int planeSize = h * w;
         var predMat = new Mat(h, w, MatType.CV_32FC1);
-        var dst = new Span<float>((void*)predMat.DataPointer, planeSize);
+        var dst = MatSpanInterop.AsFloatSpan(predMat, planeSize);
         int idx = 0;
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
